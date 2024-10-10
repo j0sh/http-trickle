@@ -6,11 +6,12 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/livepeer/lpms/ffmpeg"
+	//"github.com/livepeer/lpms/ffmpeg"
 	"golang.org/x/sys/unix"
 )
 
@@ -30,24 +31,24 @@ func run(in string, segmentHandler SegmentReader) {
 		defer wg.Done()
 		processSegments(segmentHandler, outFilePattern, completionSignal)
 	}()
-	ffmpeg.FfmpegSetLogLevel(ffmpeg.FFLogWarning)
-	ffmpeg.Transcode3(&ffmpeg.TranscodeOptionsIn{
-		Fname: in,
-	}, []ffmpeg.TranscodeOptions{{
-		Oname:        outFilePattern,
-		AudioEncoder: ffmpeg.ComponentOptions{Name: "copy"},
-		VideoEncoder: ffmpeg.ComponentOptions{Name: "copy"},
-		Muxer:        ffmpeg.ComponentOptions{Name: "segment"},
-	}})
 	/*
-		// Need to add demuxer options to lpms
-		cmd := exec.Command("ffmpeg", "-f", "rtsp", "-rtsp_transport", "tcp", "-i", in, "-c", "copy", "-f", "segment", outFilePattern)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			slog.Error("Error running ffmpeg", "err", err)
-		}
-		fmt.Println(string(out))
+		ffmpeg.FfmpegSetLogLevel(ffmpeg.FFLogWarning)
+		ffmpeg.Transcode3(&ffmpeg.TranscodeOptionsIn{
+			Fname: in,
+		}, []ffmpeg.TranscodeOptions{{
+			Oname:        outFilePattern,
+			AudioEncoder: ffmpeg.ComponentOptions{Name: "copy"},
+			VideoEncoder: ffmpeg.ComponentOptions{Name: "copy"},
+			Muxer:        ffmpeg.ComponentOptions{Name: "segment"},
+		}})
 	*/
+	// Need to add demuxer options to lpms
+	cmd := exec.Command("ffmpeg", "-i", in, "-c", "copy", "-f", "segment", outFilePattern)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		slog.Error("Error running ffmpeg", "err", err)
+	}
+	fmt.Println(string(out))
 	completionSignal <- true
 	fmt.Printf("sent completing signal now waiting")
 	wg.Wait()
@@ -104,7 +105,7 @@ func openNonBlockingWithRetry(name string, timeout time.Duration) (*os.File, err
 		setFd(fd, readFds)
 
 		// Wait using select until the pipe is ready for reading
-		n, err := syscall.Select(fd+1, readFds, nil, nil, &tv)
+		n, err := crossPlatformSelect(fd+1, readFds, nil, nil, &tv)
 		if err != nil {
 			if err == syscall.EINTR {
 				continue // Retry if interrupted by a signal

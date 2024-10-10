@@ -12,22 +12,25 @@ import (
 	"strings"
 )
 
+// Listens to new streams from MediaMTX and publishes
+// to trickle HTTP server under the same name
+
 type SegmentPoster struct {
-	trickleWriter *TrickleWriter
+	tricklePublisher *TricklePublisher
 }
 
 func (sp *SegmentPoster) NewSegment(reader io.Reader) {
 	go func() {
 		// NB: This blocks! Very bad!
-		sp.trickleWriter.Write(reader)
+		sp.tricklePublisher.Write(reader)
 	}()
 }
 
-type FileWriter struct {
+type FilePublisher struct {
 	count int
 }
 
-func (fw *FileWriter) NewSegment(reader io.Reader) {
+func (fw *FilePublisher) NewSegment(reader io.Reader) {
 	go func() {
 		fname := fmt.Sprintf("out-write-rtsp/%d.ts", fw.count)
 		file, err := os.OpenFile(fname, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
@@ -50,12 +53,12 @@ func randomString() string {
 }
 
 func segmentPoster(streamName string) *SegmentPoster {
-	c, err := NewTrickleWriter("http://localhost:2939", streamName)
+	c, err := NewTricklePublisher("http://localhost:2939", streamName)
 	if err != nil {
 		panic(err)
 	}
 	return &SegmentPoster{
-		trickleWriter: c,
+		tricklePublisher: c,
 	}
 }
 
@@ -76,8 +79,8 @@ func newPublish(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		//sp := segmentPoster(randomString())
 		sp := segmentPoster(streamName)
-		defer sp.trickleWriter.Close()
-		//sp := &FileWriter{}
+		defer sp.tricklePublisher.Close()
+		//sp := &FilePublisher{}
 		//run("rtsp://localhost:8554/"+streamName+"?tcp", sp)
 		run("rtmp://localhost/"+streamName, sp)
 	}()

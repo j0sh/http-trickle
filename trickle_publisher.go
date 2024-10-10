@@ -8,8 +8,8 @@ import (
 	"sync"
 )
 
-// TrickleWriter represents a trickle streaming client
-type TrickleWriter struct {
+// TricklePublisher represents a trickle streaming client
+type TricklePublisher struct {
 	baseURL     string
 	streamName  string
 	index       int          // Current index for segments
@@ -24,9 +24,9 @@ type pendingPost struct {
 	writer *io.PipeWriter
 }
 
-// NewTrickleWriter creates a new trickle stream client
-func NewTrickleWriter(baseURL, streamName string) (*TrickleWriter, error) {
-	c := &TrickleWriter{
+// NewTricklePublisher creates a new trickle stream client
+func NewTricklePublisher(baseURL, streamName string) (*TricklePublisher, error) {
+	c := &TricklePublisher{
 		baseURL:     baseURL + "/realtime",
 		streamName:  streamName,
 		contentType: "video/MP2T",
@@ -42,7 +42,7 @@ func NewTrickleWriter(baseURL, streamName string) (*TrickleWriter, error) {
 
 // Acquire lock to manage access to pendingPost and index
 // NB expects to have the lock already since we mutate the index
-func (c *TrickleWriter) preconnect() (*pendingPost, error) {
+func (c *TricklePublisher) preconnect() (*pendingPost, error) {
 
 	index := c.index
 	url := fmt.Sprintf("%s/%s/%d", c.baseURL, c.streamName, index)
@@ -84,7 +84,7 @@ func (c *TrickleWriter) preconnect() (*pendingPost, error) {
 	}, nil
 }
 
-func (c *TrickleWriter) Close() error {
+func (c *TricklePublisher) Close() error {
 	url := fmt.Sprintf("%s/%s", c.baseURL, c.streamName)
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
@@ -103,7 +103,7 @@ func (c *TrickleWriter) Close() error {
 }
 
 // Write sends data to the current segment, sets up the next segment concurrently, and blocks until completion
-func (c *TrickleWriter) Write(data io.Reader) error {
+func (c *TricklePublisher) Write(data io.Reader) error {
 
 	// Acquire lock to manage access to pendingPost and index
 	c.writeLock.Lock()

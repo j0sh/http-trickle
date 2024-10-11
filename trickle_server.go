@@ -107,6 +107,11 @@ func (sm *StreamManager) handleDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid stream name", http.StatusBadRequest)
 		return
 	}
+
+	// TODO properly clear sessions once we have a good solution
+	//      for session reuse
+	return
+
 	stream.clear()
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()

@@ -100,6 +100,7 @@ func openNonBlockingWithRetry(name string, timeout time.Duration, completed <-ch
 		// Check if completed
 		select {
 		case <-completed:
+			syscall.Close(fd)
 			return nil, fmt.Errorf("Completed")
 		default:
 			// continue

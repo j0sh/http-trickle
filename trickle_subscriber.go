@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -17,6 +16,9 @@ type TrickleSubscriber struct {
 	mu         sync.Mutex     // Mutex to manage concurrent access
 	pendingGet *http.Response // Pre-initialized GET request
 	idx        int            // Segment index to request
+
+	// Number of errors from preconnect
+	preconnectErrorCount int
 }
 
 // NewTrickleSubscriber creates a new trickle stream reader for GET requests
@@ -46,7 +48,7 @@ func getIndex(resp *http.Response) int {
 // preconnect pre-initializes the next GET request for fetching the next segment (always index -1)
 func (c *TrickleSubscriber) preconnect() (*http.Response, error) {
 	url := fmt.Sprintf("%s/%s/%d", c.baseURL, c.streamName, c.idx)
-	log.Println("JOSH - preconnecting", url)
+	slog.Info("preconnecting", "url", url)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -76,17 +78,28 @@ func (c *TrickleSubscriber) Read() (*http.Response, error) {
 	// Acquire lock to manage access to pendingGet
 	c.mu.Lock()
 
+	// TODO clean up this preconnect error handling!
+	hitMaxPreconnects := c.preconnectErrorCount > 5
+	if hitMaxPreconnects {
+		slog.Error("Hit max preconnect error", "stream", c.streamName, "idx", c.idx)
+		c.mu.Unlock()
+		return nil, fmt.Errorf("Hit max preconnects")
+	}
+
 	// Get the reader to use for the current segment
 	conn := c.pendingGet
 	if conn == nil {
 		// Preconnect if we don't have a pending GET
-		fmt.Println("JOSH - no conn, preconnecting", c.idx)
+		slog.Info("No preconnect, connecting", "stream", c.streamName, "idx", c.idx)
 		p, err := c.preconnect()
 		if err != nil {
+			c.preconnectErrorCount++
 			c.mu.Unlock()
 			return nil, err
 		}
 		conn = p
+		// reset preconnect error
+		c.preconnectErrorCount = 0
 	}
 
 	// Set to use the next index for the next (pre-)connection
@@ -97,12 +110,12 @@ func (c *TrickleSubscriber) Read() (*http.Response, error) {
 
 	// Set up the next connection
 	go func() {
-		slog.Info("JOSH - setting next conn,  preconnecting", "idx", c.idx)
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		nextConn, err := c.preconnect()
 		if err != nil {
 			slog.Error("failed to preconnect next segment", "idx", c.idx, "err", err)
+			c.preconnectErrorCount++
 			return
 		}
 
@@ -111,6 +124,8 @@ func (c *TrickleSubscriber) Read() (*http.Response, error) {
 		if idx != -1 {
 			c.idx = idx + 1
 		}
+		// reset preconnect error
+		c.preconnectErrorCount = 0
 	}()
 
 	// Now unlock since the next segment is set up and we have the reader for the current one

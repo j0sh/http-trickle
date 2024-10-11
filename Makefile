@@ -1,3 +1,4 @@
+
 # Run `make reader stream=streamname`
 subscriber:
 	go run read2pipe.go trickle_subscriber.go trickle_publisher.go --stream $(stream) | ffplay -probesize 32 -fflags nobuffer -flags low_delay -
@@ -21,5 +22,11 @@ else
 	$(error Unsupported OS: $(OS))
 endif
 
+pubsub:
+	go run pubsub-mediamtx.go rtmp2segment.go $(SELECT_FILE) trickle_publisher.go trickle_subscriber.go --out $(out)
+
 publisher:
 	go run publisher-mediamtx.go rtmp2segment.go $(SELECT_FILE) trickle_publisher.go
+
+tester:
+	go run trickle_tester.go file2segment.go $(SELECT_FILE) trickle_publisher.go --stream $(stream) --local $(local)

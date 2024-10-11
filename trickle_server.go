@@ -177,7 +177,7 @@ func (tr *timeoutReader) Read(p []byte) (int, error) {
 func (s *Stream) handlePost(w http.ResponseWriter, r *http.Request, idx int) {
 	segment, exists := s.getForWrite(idx)
 	if exists {
-		slog.Warning("Overwriting existing entry", "idx", idx)
+		slog.Warn("Overwriting existing entry", "idx", idx)
 		/*
 			// Overwrite anything that exists now. TODO figure out a safer behavior?
 				http.Error(w, "Entry already exists for this index", http.StatusBadRequest)

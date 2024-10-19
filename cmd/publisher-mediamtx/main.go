@@ -7,13 +7,14 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"trickle"
 )
 
 // Listens to new streams from MediaMTX and publishes
 // to trickle HTTP server under the same name
 
 type SegmentPoster struct {
-	tricklePublisher *TricklePublisher
+	tricklePublisher *trickle.TricklePublisher
 }
 
 func (sp *SegmentPoster) NewSegment(reader io.Reader) {
@@ -41,7 +42,7 @@ func (fw *FilePublisher) NewSegment(reader io.Reader) {
 }
 
 func segmentPoster(streamName string) *SegmentPoster {
-	c, err := NewTricklePublisher("http://localhost:2939", streamName)
+	c, err := trickle.NewTricklePublisher("http://localhost:2939/" + streamName)
 	if err != nil {
 		panic(err)
 	}
@@ -70,7 +71,7 @@ func newPublish(w http.ResponseWriter, r *http.Request) {
 		defer sp.tricklePublisher.Close()
 		//sp := &FilePublisher{}
 		//run("rtsp://localhost:8554/"+streamName+"?tcp", sp)
-		run("rtmp://localhost/"+streamName, sp)
+		trickle.RunSegmentation("rtmp://localhost/"+streamName, sp.NewSegment)
 	}()
 }
 

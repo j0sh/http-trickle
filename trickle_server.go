@@ -1,17 +1,18 @@
-package main
+package trickle
 
 import (
 	"bytes"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
 )
+
+// TODO sweep idle streams connections
 
 type StreamManager struct {
 	mutex   sync.RWMutex
@@ -39,24 +40,26 @@ type SegmentSubscriber struct {
 
 const maxSegmentsPerStream = 5
 
+const BaseServerPath = "/ai/live-video/"
+
 var FirstByteTimeout = errors.New("pending read timeout")
 
-func main() {
-	streamManager := &StreamManager{
-		streams: make(map[string]*Stream),
-	}
+func ConfigureServerWithMux(mux *http.ServeMux) {
+	/* TODO we probably want to configure the below
 	srv := &http.Server{
-		Addr: ":2939",
 		// say max segment size is 20 secs
 		// we can allow 2 * 20 secs given preconnects
 		ReadTimeout:  40 * time.Second,
 		WriteTimeout: 45 * time.Second,
 	}
-	http.HandleFunc("GET /realtime/{streamName}/{idx}", streamManager.handleGet)
-	http.HandleFunc("POST /realtime/{streamName}/{idx}", streamManager.handlePost)
-	http.HandleFunc("DELETE /realtime/{streamName}", streamManager.handleDelete)
-	log.Println("Server started at :2939")
-	log.Fatal(srv.ListenAndServe())
+	*/
+
+	streamManager := &StreamManager{
+		streams: make(map[string]*Stream),
+	}
+	mux.HandleFunc("GET "+BaseServerPath+"{streamName}/{idx}", streamManager.handleGet)
+	mux.HandleFunc("POST "+BaseServerPath+"{streamName}/{idx}", streamManager.handlePost)
+	mux.HandleFunc("DELETE "+BaseServerPath+"{streamName}", streamManager.handleDelete)
 }
 
 func (sm *StreamManager) getStream(streamName string) (*Stream, bool) {
@@ -162,20 +165,28 @@ func (tr *timeoutReader) Read(p []byte) (int, error) {
 }
 
 // TODO retry handling.
+//
 // What can happen is roughly the following:
-// client sends a POST for segment Y with some indication
-// of a retry for segment X , X > 0, Y > X .
+// client abruptly stops sending a segment X
+// client needs to continue at segment Y (Y > X, usually Y = X + 2)
+//
+// What needs to happen:
+//  server needs to keep track of bytes received at X
+//  For Y, client sends *full* segment (overlapping X)
+//  Server *discards* overlap bytes between X and Y
+//
+// client sends a POST for segment Y with a retry indication
 // Segment X can only be the last segment that the client sent content for.
-// This includes wrapping up any GET connections for these segments
-// (the server can continue transmitting what it has so far for Segment X,
-// but it should not add any more data to X's buffer)
+// Server should close segment X
+// (the server can continue transmitting what it has so far for Segment X to,
+// clients that are still downloading it, but should not add any more to X's buffer)
 // Also the server should close any pending POST and GET requests for X < segment < Y
 // even if these segment have NO data. This would mean marking any pending POST
 // segments as 'closed' and returning empty data (but still a 200 OK) to any
 // clients that GET these segments.
 // (in practice this would just be a single pre-connection for X + 1)
-// Server discards bytes for Segment Z up to its last read byte of Segment X
-// After reaching the last read byte, start buffering up the bytes of Segment Z
+// Server discards bytes for Segment Y up to its last read byte of Segment X
+// After reaching the last read byte, start buffering up the bytes of Segment Y
 // as they come in. Process requests normally.
 
 // Handle post requests for a given index
@@ -240,7 +251,7 @@ func (s *Stream) getForWrite(idx int) (*Segment, bool) {
 	} else {
 		s.latestWrite = idx
 	}
-	log.Println("POST segment for", idx, "latest", s.latestWrite)
+	slog.Info("POST segment", "idx", idx, "latest", s.latestWrite)
 	segmentPos := idx % maxSegmentsPerStream
 	if segment := s.segments[segmentPos]; segment != nil {
 		if idx == segment.idx {
@@ -270,9 +281,9 @@ func (s *Stream) getForRead(idx int) (*Segment, bool) {
 		// read request is just a little bit ahead of write head
 		segment = newSegment(idx)
 		s.segments[segmentPos] = segment
-		log.Println("GET precreating for", idx, "latest", s.latestWrite)
+		slog.Info("GET precreating", "idx", idx, "latest", s.latestWrite)
 	}
-	log.Println("GET segment for", idx, "latest", s.latestWrite, "exists?", exists(segment, idx))
+	slog.Info("GET segment", "idx", idx, "latest", s.latestWrite, "exists?", exists(segment, idx))
 	return segment, exists(segment, idx)
 }
 
@@ -376,7 +387,7 @@ func (s *Segment) readData(startPos int) ([]byte, bool) {
 			return data, s.closed
 		}
 		if startPos > totalLen {
-			log.Println("Invalid start pos, invoking eof")
+			slog.Info("Invalid start pos, invoking eof")
 			return nil, true
 		}
 		if s.closed {

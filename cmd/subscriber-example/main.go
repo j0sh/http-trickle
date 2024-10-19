@@ -6,9 +6,10 @@ import (
 	"io"
 	"log"
 	"os"
+	"trickle"
 )
 
-// TrickleReader example usage
+// TrickleSubscriber example - write segments to file
 func main() {
 
 	// Check some command-line arguments
@@ -19,24 +20,30 @@ func main() {
 		log.Fatalf("Error: stream name is required. Use -stream flag to specify the stream name.")
 	}
 
-	client := NewTrickleReader(*baseURL, *streamName)
+	client := trickle.NewTrickleSubscriber(*baseURL, *streamName)
 
 	maxSegments := 75
 	for i := 0; i < maxSegments; i++ {
 		// Read and process the first segment
 		resp, err := client.Read()
-		idx := getIndex(resp)
+		idx := trickle.GetIndex(resp)
 		if err != nil {
 			log.Fatal("Failed to read segment", idx, err)
 			continue
 		}
-		n, err := io.Copy(os.Stdout, resp.Body)
+		fname := fmt.Sprintf("out-read/%d.ts", idx)
+		file, err := os.OpenFile(fname, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			panic(err)
+		}
+		n, err := io.Copy(file, resp.Body)
 		if err != nil {
 			log.Fatal("Failed to record segment", idx, err)
 			continue
 		}
 		resp.Body.Close()
-		log.Println("--- End of Segment ", idx, fmt.Sprintf("(%d/%d)", i, maxSegments), "bytes", humanBytes(n), " ---")
+		file.Close()
+		log.Println("--- End of Segment ", idx, fmt.Sprintf("(%d/%d)", i, maxSegments), "bytes", trickle.HumanBytes(n), " ---")
 	}
 	log.Println("Completing", *streamName)
 }

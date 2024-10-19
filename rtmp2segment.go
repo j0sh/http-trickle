@@ -1,4 +1,4 @@
-package main
+package trickle
 
 import (
 	"bufio"
@@ -14,18 +14,14 @@ import (
 	"syscall"
 	"time"
 
-	//"github.com/livepeer/lpms/ffmpeg"
 	"golang.org/x/sys/unix"
 )
 
-type SegmentReader interface {
-	NewSegment(reader io.Reader)
-}
-
 var waitTimeout = 20 * time.Second
 
-func run(in string, segmentHandler SegmentReader) {
+func RunSegmentation(in string, segmentHandler SegmentHandler) {
 
+	// TODO workdir stuff
 	outFilePattern := randomString() + "-%d.ts"
 	completionSignal := make(chan bool)
 	wg := &sync.WaitGroup{}
@@ -57,7 +53,7 @@ func run(in string, segmentHandler SegmentReader) {
 	}
 	fmt.Println(string(out))
 	completionSignal <- true
-	fmt.Printf("sent completing signal now waiting")
+	slog.Info("sent completion signal, now waiting")
 	wg.Wait()
 }
 
@@ -151,7 +147,7 @@ func openNonBlockingWithRetry(name string, timeout time.Duration, completed <-ch
 	}
 }
 
-func processSegments(segmentReader SegmentReader, outFilePattern string, completionSignal <-chan bool) {
+func processSegments(segmentHandler SegmentHandler, outFilePattern string, completionSignal <-chan bool) {
 
 	// things protected by the mutex mu
 	mu := &sync.Mutex{}
@@ -165,11 +161,11 @@ func processSegments(segmentReader SegmentReader, outFilePattern string, complet
 		defer mu.Unlock()
 		if currentSegment != nil {
 			// Trigger EOF on the current segment by closing the file
-			fmt.Println("Completion signal received. Closing current segment to trigger EOF.")
+			slog.Info("Completion signal received. Closing current segment to trigger EOF.")
 			currentSegment.Close()
 		}
 		isComplete = true
-		fmt.Println("Got completion signal", currentSegment)
+		slog.Info("Got completion signal")
 	}()
 
 	pipeNum := 0
@@ -186,8 +182,7 @@ func processSegments(segmentReader SegmentReader, outFilePattern string, complet
 		// Blocks if no writer is available so do some tricks to it
 		file, err := openNonBlockingWithRetry(pipeName, waitTimeout, completionSignal)
 		if err != nil {
-			fmt.Printf("Error opening pipe %s: %v\n", pipeName, err)
-			// TODO clean up pipeName if necessary, eg if still exists
+			slog.Error("Error opening pipe", "pipeName", pipeName, "err", err)
 			cleanUpPipe(pipeName)
 			cleanUpPipe(nextPipeName)
 			break
@@ -198,7 +193,7 @@ func processSegments(segmentReader SegmentReader, outFilePattern string, complet
 		mu.Unlock()
 
 		// Handle the reading process
-		readSegment(segmentReader, file, pipeName)
+		readSegment(segmentHandler, file, pipeName)
 
 		// Increment to the next pipe
 		pipeNum++
@@ -218,7 +213,7 @@ func processSegments(segmentReader SegmentReader, outFilePattern string, complet
 	}
 }
 
-func readSegment(segmentReader SegmentReader, file *os.File, pipeName string) {
+func readSegment(segmentHandler SegmentHandler, file *os.File, pipeName string) {
 	defer file.Close()
 
 	reader := bufio.NewReader(file)
@@ -230,7 +225,7 @@ func readSegment(segmentReader SegmentReader, file *os.File, pipeName string) {
 	// TODO should be explicitly buffered for better management
 	interfaceReader, interfaceWriter := io.Pipe()
 	defer interfaceWriter.Close()
-	segmentReader.NewSegment(interfaceReader)
+	segmentHandler(interfaceReader)
 
 	for {
 		n, err := reader.Read(buf)
@@ -249,13 +244,13 @@ func readSegment(segmentReader SegmentReader, file *os.File, pipeName string) {
 		}
 		if n == len(buf) && n < 1024*1024 {
 			newLen := int(float64(len(buf)) * 1.5)
-			slog.Info("Max buf hit, increasing", "oldSize", humanBytes(int64(len(buf))), "newSize", humanBytes(int64(newLen)))
+			slog.Info("Max buf hit, increasing", "oldSize", HumanBytes(int64(len(buf))), "newSize", HumanBytes(int64(newLen)))
 			buf = make([]byte, newLen)
 		}
 
 		if err != nil {
 			if err.Error() == "EOF" {
-				slog.Info("Last byte read", "pipeName", pipeName, "totalRead", humanBytes(totalBytesRead))
+				slog.Info("Last byte read", "pipeName", pipeName, "totalRead", HumanBytes(totalBytesRead))
 			} else {
 				slog.Error("Error reading", "pipeName", pipeName, "err", err)
 			}

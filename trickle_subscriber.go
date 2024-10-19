@@ -1,4 +1,4 @@
-package main
+package trickle
 
 import (
 	"fmt"
@@ -31,7 +31,7 @@ func NewTrickleSubscriber(baseURL, streamName string) *TrickleSubscriber {
 	}
 }
 
-func getIndex(resp *http.Response) int {
+func GetIndex(resp *http.Response) int {
 	if resp == nil {
 		return -1 // TODO hmm
 	}
@@ -103,7 +103,7 @@ func (c *TrickleSubscriber) Read() (*http.Response, error) {
 	}
 
 	// Set to use the next index for the next (pre-)connection
-	idx := getIndex(conn)
+	idx := GetIndex(conn)
 	if idx != -1 {
 		c.idx = idx + 1
 	}
@@ -120,7 +120,7 @@ func (c *TrickleSubscriber) Read() (*http.Response, error) {
 		}
 
 		c.pendingGet = nextConn
-		idx := getIndex(conn)
+		idx := GetIndex(conn)
 		if idx != -1 {
 			c.idx = idx + 1
 		}

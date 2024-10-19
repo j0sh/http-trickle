@@ -1,6 +1,7 @@
-package main
+package trickle
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,7 +12,6 @@ import (
 // TricklePublisher represents a trickle streaming client
 type TricklePublisher struct {
 	baseURL     string
-	streamName  string
 	index       int          // Current index for segments
 	writeLock   sync.Mutex   // Mutex to manage concurrent access
 	pendingPost *pendingPost // Pre-initialized POST request
@@ -25,10 +25,9 @@ type pendingPost struct {
 }
 
 // NewTricklePublisher creates a new trickle stream client
-func NewTricklePublisher(baseURL, streamName string) (*TricklePublisher, error) {
+func NewTricklePublisher(url string) (*TricklePublisher, error) {
 	c := &TricklePublisher{
-		baseURL:     baseURL + "/realtime",
-		streamName:  streamName,
+		baseURL:     url,
 		contentType: "video/MP2T",
 	}
 	p, err := c.preconnect()
@@ -45,12 +44,14 @@ func NewTricklePublisher(baseURL, streamName string) (*TricklePublisher, error) 
 func (c *TricklePublisher) preconnect() (*pendingPost, error) {
 
 	index := c.index
-	url := fmt.Sprintf("%s/%s/%d", c.baseURL, c.streamName, index)
+	url := fmt.Sprintf("%s/%d", c.baseURL, index)
+
+	slog.Info("Preconnecting", "url", url)
 
 	pr, pw := io.Pipe()
 	req, err := http.NewRequest("POST", url, pr)
 	if err != nil {
-		fmt.Printf("Failed to create request for segment %d: %v\n", index, err)
+		slog.Error("Failed to create request for segment", "idx", index, "err", err)
 		return nil, err
 	}
 	req.Header.Set("Content-Type", c.contentType)
@@ -58,8 +59,13 @@ func (c *TricklePublisher) preconnect() (*pendingPost, error) {
 	// Start the POST request in a background goroutine
 	// TODO error handling for these
 	go func() {
-		slog.Info("JOSH - initiailzing http client", "idx", index)
-		resp, err := (&http.Client{}).Do(req) // prevent connection reuse
+		slog.Info("Initiailzing http client", "idx", index)
+		// Createa new client to prevent connection reuse
+		client := http.Client{Transport: &http.Transport{
+			// ignore orch certs for now
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}}
+		resp, err := client.Do(req)
 		if err != nil {
 			slog.Info("Failed to complete POST for segment", "index", index, "err", err)
 			return
@@ -85,8 +91,7 @@ func (c *TricklePublisher) preconnect() (*pendingPost, error) {
 }
 
 func (c *TricklePublisher) Close() error {
-	url := fmt.Sprintf("%s/%s", c.baseURL, c.streamName)
-	req, err := http.NewRequest("DELETE", url, nil)
+	req, err := http.NewRequest("DELETE", c.baseURL, nil)
 	if err != nil {
 		return err
 	}
@@ -138,7 +143,7 @@ func (c *TricklePublisher) Write(data io.Reader) error {
 		return fmt.Errorf("error streaming data to segment %d: %w", index, err)
 	}
 
-	slog.Info("Completed writing", "idx", index, "totalBytes", humanBytes(n))
+	slog.Info("Completed writing", "idx", index, "totalBytes", HumanBytes(n))
 
 	// Close the pipe writer to signal end of data for the current POST request
 	if err := writer.Close(); err != nil {
@@ -146,17 +151,4 @@ func (c *TricklePublisher) Write(data io.Reader) error {
 	}
 
 	return nil
-}
-
-func humanBytes(bytes int64) string {
-	var unit int64 = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	div, exp := unit, 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }

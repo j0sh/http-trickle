@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"time"
+	"trickle"
 )
 
 // Listens to new streams from MediaMTX and publishes
@@ -20,7 +21,7 @@ var (
 )
 
 type SegmentPoster struct {
-	tricklePublisher *TricklePublisher
+	tricklePublisher *trickle.TricklePublisher
 }
 
 func (sp *SegmentPoster) NewSegment(reader io.Reader) {
@@ -31,7 +32,7 @@ func (sp *SegmentPoster) NewSegment(reader io.Reader) {
 }
 
 func segmentPoster(streamName string) *SegmentPoster {
-	c, err := NewTricklePublisher(*baseURL, streamName)
+	c, err := trickle.NewTricklePublisher(*baseURL + "/" + streamName)
 	if err != nil {
 		panic(err)
 	}
@@ -41,7 +42,7 @@ func segmentPoster(streamName string) *SegmentPoster {
 }
 
 func runSubscribe(streamName string) error {
-	client := NewTrickleSubscriber(*baseURL, streamName)
+	client := trickle.NewTrickleSubscriber(*baseURL, streamName)
 	outPipe, err := os.OpenFile(*outFile, os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		slog.Error("Error opening subscribe output", "stream", streamName, "err", err)
@@ -55,7 +56,7 @@ func runSubscribe(streamName string) error {
 			slog.Error("Error getting client reader", "stream", streamName, "err", err)
 			break
 		}
-		idx := getIndex(resp)
+		idx := trickle.GetIndex(resp)
 		n, err := io.Copy(outPipe, resp.Body)
 		if err != nil {
 			slog.Error("Error copying to output", "stream", streamName, "idx", idx, "err", err, "copied", n)
@@ -80,7 +81,7 @@ func newPublish(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(2 * time.Second)
 			runSubscribe(streamName)
 		}()
-		run("rtmp://localhost/"+streamName, sp)
+		trickle.RunSegmentation("rtmp://localhost/"+streamName, sp.NewSegment)
 	}()
 }
 

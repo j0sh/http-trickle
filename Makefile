@@ -3,8 +3,8 @@
 subscriber:
 	go run read2pipe.go trickle_subscriber.go trickle_publisher.go --stream $(stream) | ffplay -probesize 32 -fflags nobuffer -flags low_delay -
 
-server:
-	go run rtmp2server.go
+trickle-server:
+	go run cmd/trickle-server/*.go
 
 # Listens for a connection from MediaMTX
 # Run `make subscriber-example stream=streamname`

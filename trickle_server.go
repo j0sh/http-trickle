@@ -40,20 +40,11 @@ type SegmentSubscriber struct {
 
 const maxSegmentsPerStream = 5
 
-const BaseServerPath = "/ai/live-video/"
+const BaseServerPath = "/"
 
 var FirstByteTimeout = errors.New("pending read timeout")
 
 func ConfigureServerWithMux(mux *http.ServeMux) {
-	/* TODO we probably want to configure the below
-	srv := &http.Server{
-		// say max segment size is 20 secs
-		// we can allow 2 * 20 secs given preconnects
-		ReadTimeout:  40 * time.Second,
-		WriteTimeout: 45 * time.Second,
-	}
-	*/
-
 	streamManager := &StreamManager{
 		streams: make(map[string]*Stream),
 	}

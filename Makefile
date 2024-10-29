@@ -1,7 +1,7 @@
 
-# Run `make reader stream=streamname`
-subscriber:
-	go run read2pipe.go trickle_subscriber.go trickle_publisher.go --stream $(stream) | ffplay -probesize 32 -fflags nobuffer -flags low_delay -
+# Run `make play stream=streamname`
+play:
+	go run cmd/read2pipe/*.go --stream $(stream) | ffplay -probesize 32 -fflags nobuffer -flags low_delay -
 
 trickle-server:
 	go run cmd/trickle-server/*.go
@@ -9,7 +9,7 @@ trickle-server:
 # Listens for a connection from MediaMTX
 # Run `make subscriber-example stream=streamname`
 subscriber-example:
-	go run subscriber-example.go trickle_subscriber.go trickle_publisher.go --stream $(stream)
+	go run cmd/subscriber-example.go trickle_subscriber.go trickle_publisher.go --stream $(stream)
 
 OS := $(shell uname)
 
@@ -23,10 +23,10 @@ else
 endif
 
 pubsub:
-	go run pubsub-mediamtx.go rtmp2segment.go $(SELECT_FILE) trickle_publisher.go trickle_subscriber.go --out $(out)
+	go run cmd/pubsub-mediamtx/*.go --out $(out)
 
 publisher:
-	go run publisher-mediamtx.go rtmp2segment.go $(SELECT_FILE) trickle_publisher.go
+	go run cmd/publisher-mediamtx/main.go
 
 tester:
 	go run trickle_tester.go file2segment.go $(SELECT_FILE) trickle_publisher.go --stream $(stream) --local $(local)

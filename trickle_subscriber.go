@@ -25,7 +25,7 @@ type TrickleSubscriber struct {
 func NewTrickleSubscriber(baseURL, streamName string) *TrickleSubscriber {
 	// No preconnect needed here; it will be handled by the first Read call.
 	return &TrickleSubscriber{
-		baseURL:    baseURL + "/realtime",
+		baseURL:    baseURL,
 		streamName: streamName,
 		idx:        -1, // shortcut for 'latest'
 	}

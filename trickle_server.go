@@ -23,6 +23,7 @@ type Stream struct {
 	mutex       sync.RWMutex
 	segments    []*Segment
 	latestWrite int
+	name        string
 }
 
 type Segment struct {
@@ -68,6 +69,7 @@ func (sm *StreamManager) getOrCreateStream(streamName string) *Stream {
 	if !exists {
 		stream = &Stream{
 			segments: make([]*Segment, 5),
+			name:     streamName,
 		}
 		sm.streams[streamName] = stream
 		slog.Info("Creating stream", "stream", streamName)
@@ -216,13 +218,13 @@ func (s *Stream) handlePost(w http.ResponseWriter, r *http.Request, idx int) {
 		if err != nil {
 			if err == FirstByteTimeout {
 				// Keepalive via provisional headers
-				slog.Info("Sending provisional headers for", "idx", idx)
+				slog.Info("Sending provisional headers for", "stream", s.name, "idx", idx)
 				w.WriteHeader(http.StatusContinue)
 				continue
 			} else if err == io.EOF {
 				break
 			}
-			slog.Info("Error reading POST body", "idx", idx, "bytes written", totalRead, "err", err)
+			slog.Info("Error reading POST body", "stream", s.name, "idx", idx, "bytes written", totalRead, "err", err)
 			http.Error(w, "Server error", http.StatusInternalServerError)
 			return
 		}
@@ -242,7 +244,7 @@ func (s *Stream) getForWrite(idx int) (*Segment, bool) {
 	} else {
 		s.latestWrite = idx
 	}
-	slog.Info("POST segment", "idx", idx, "latest", s.latestWrite)
+	slog.Info("POST segment", "stream", s.name, "idx", idx, "latest", s.latestWrite)
 	segmentPos := idx % maxSegmentsPerStream
 	if segment := s.segments[segmentPos]; segment != nil {
 		if idx == segment.idx {
@@ -272,9 +274,9 @@ func (s *Stream) getForRead(idx int) (*Segment, bool) {
 		// read request is just a little bit ahead of write head
 		segment = newSegment(idx)
 		s.segments[segmentPos] = segment
-		slog.Info("GET precreating", "idx", idx, "latest", s.latestWrite)
+		slog.Info("GET precreating", "stream", s.name, "idx", idx, "latest", s.latestWrite)
 	}
-	slog.Info("GET segment", "idx", idx, "latest", s.latestWrite, "exists?", exists(segment, idx))
+	slog.Info("GET segment", "stream", s.name, "idx", idx, "latest", s.latestWrite, "exists?", exists(segment, idx))
 	return segment, exists(segment, idx)
 }
 
@@ -342,7 +344,7 @@ func (s *Stream) handleGet(w http.ResponseWriter, r *http.Request, idx int) {
 
 	if n, err := sendData(); err != nil {
 		// Handle write error or client disconnect
-		slog.Error("Error sending data to client", "idx", segment.idx, "sentBytes", n, "err", err)
+		slog.Error("Error sending data to client", "stream", s.name, "idx", segment.idx, "sentBytes", n, "err", err)
 		return
 	}
 }

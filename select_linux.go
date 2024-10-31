@@ -1,6 +1,6 @@
 //go:build linux
 
-package media
+package trickle
 
 import "syscall"
 

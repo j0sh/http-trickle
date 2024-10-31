@@ -11,7 +11,7 @@ import threading
 from datetime import datetime
 
 # Constants and initial values
-READ_TIMEOUT = 2
+READ_TIMEOUT = 20
 SLEEP_INTERVAL = 0.05
 
 # TODO make this better configurable
@@ -43,7 +43,8 @@ def ffmpeg_cmd(in_pipe_fd, out_pattern):
 	    '-loglevel', 'warning',
         '-f', 'image2pipe',
         '-framerate', f"{FRAMERATE}",
-        '-i', f'pipe:{in_pipe_fd}',
+        '-i', '-', # stdin
+        #'-i', f'pipe:{in_pipe_fd}',
         '-c:v', 'h264_nvenc',
         '-bf', '0', # disable bframes for webrtc
         '-g', f'{GOP_SECS*FRAMERATE}',
@@ -55,11 +56,11 @@ def ffmpeg_cmd(in_pipe_fd, out_pattern):
     else:
         cmd = [
         'ffmpeg',
-	    '-loglevel', 'info',
+	    '-loglevel', 'warning',
         '-f', 'image2pipe',
         '-framerate', f"{FRAMERATE}",
-        '-i', f'pipe:{in_pipe_fd}',
-        #'-i', f'-', # stdin
+        #'-i', f'pipe:{in_pipe_fd}',
+        '-i', 'pipe:0', # stdin
         '-c:v', 'libx264',
         '-bf', '0', # disable bframes for webrtc
         '-g', f'{GOP_SECS*FRAMERATE}',
@@ -127,10 +128,10 @@ def segment_reading_process(in_fd, callback):
     proc = subprocess.Popen(
         ffmpeg_cmd(in_fd, out_pattern),
         #stdin=subprocess.PIPE,
-        #stdin=in_fd,
+        stdin=in_fd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        pass_fds=(in_fd,),
+        #pass_fds=(in_fd,),
     )
 
     # Create a thread to handle stderr redirection

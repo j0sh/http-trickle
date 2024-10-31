@@ -5,10 +5,10 @@ import os
 import threading
 import subprocess
 
-from trickle_subscriber import TrickleSubscriber
-from trickle_publisher import TricklePublisher
-from jpeg_parser import JPEGStreamParser
-import segmenter
+from .trickle_subscriber import TrickleSubscriber
+from .trickle_publisher import TricklePublisher
+from .jpeg_parser import JPEGStreamParser
+from . import segmenter
 
 # target framerate
 FRAMERATE=segmenter.FRAMERATE
@@ -17,7 +17,7 @@ GOP_SECS=segmenter.GOP_SECS
 # TODO make this better configurable
 GPU=segmenter.GPU
 
-async def preprocess(subscribe_url: str, image_callback):
+async def run_subscribe(subscribe_url: str, image_callback):
     # TODO add some pre-processing parameters, eg image size
     try:
         ffmpeg = await launch_ffmpeg()
@@ -25,6 +25,7 @@ async def preprocess(subscribe_url: str, image_callback):
         subscribe_task = asyncio.create_task(subscribe(subscribe_url, ffmpeg.stdin))
         jpeg_task = asyncio.create_task(parse_jpegs(ffmpeg.stdout, image_callback))
         await asyncio.gather(ffmpeg.wait(), logging_task, subscribe_task, jpeg_task)
+        logging.info("run_subscribe complete")
     except Exception as e:
         logging.error(f"preprocess got error {e}", e)
         raise e
@@ -54,6 +55,7 @@ async def subscribe(subscribe_url, out_pipe):
                 await segment.close()
             else:
                 # stream is complete
+                logging.info("JOSH - closing out_pipe")
                 out_pipe.close()
                 break
 
@@ -120,16 +122,15 @@ async def parse_jpegs(in_pipe, image_callback):
             parser.feed(chunk)
 
 def feed_ffmpeg(ffmpeg_fd, image_generator):
-    with os.fdopen(ffmpeg_fd, 'wb', buffering=0) as ffmpeg:
-        while True:
-            image = image_generator.get()
-            if image is None:
-                logging.info("Image generator empty, leaving feed_ffmpeg")
-                break
-            ffmpeg.write(image)
-            ffmpeg.flush()
+    while True:
+        image = image_generator.get()
+        if image is None:
+            logging.info("Image generator empty, leaving feed_ffmpeg")
+            break
+        os.write(ffmpeg_fd, image)
+    os.close(ffmpeg_fd)
 
-async def postprocess(publish_url: str, image_generator):
+async def run_publish(publish_url: str, image_generator):
     try:
         publisher = TricklePublisher(url=publish_url, mime_type="video/mp2t")
 
@@ -177,7 +178,7 @@ async def postprocess(publish_url: str, image_generator):
             segment_thread.join()
             ffmpeg_feeder.join()
         await asyncio.to_thread(joins)
-        logging.info("postprocess complete")
+        logging.info("run_publish complete")
 
     except Exception as e:
         logging.error(f"postprocess got error {e}", e)

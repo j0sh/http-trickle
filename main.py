@@ -9,7 +9,7 @@ import traceback
 import queue
 from typing import List
 
-import media
+import trickle
 
 async def main(subscribe_url: str, publish_url: str, params: dict):
     logger = logging.getLogger(__name__)
@@ -40,8 +40,8 @@ async def main(subscribe_url: str, publish_url: str, params: dict):
     loop.add_signal_handler(signal.SIGTERM, stop_signal_handler)
 
     try:
-        media_task = asyncio.create_task(media.preprocess(subscribe_url, image_callback))
-        publish_task = asyncio.create_task(media.postprocess(publish_url, image_queue))
+        subscribe_task = asyncio.create_task(trickle.run_subscribe(subscribe_url, image_callback))
+        publish_task = asyncio.create_task(trickle.run_publish(publish_url, image_queue))
     except Exception as e:
         logging.error(f"Error starting socket handler or HTTP server: {e}")
         logging.error(f"Stack trace:\n{traceback.format_exc()}")
@@ -49,10 +49,8 @@ async def main(subscribe_url: str, publish_url: str, params: dict):
 
     await block_until_signal([signal.SIGINT, signal.SIGTERM])
     await stop_event.wait()
-    await media_task.cancel()
-
     try:
-        await media_task
+        await asyncio.gather(subscribe_task, publish_task)
     except Exception as e:
         logging.error(f"Error stopping room handler: {e}")
         logging.error(f"Stack trace:\n{traceback.format_exc()}")

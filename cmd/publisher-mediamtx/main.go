@@ -72,6 +72,7 @@ func newPublish(w http.ResponseWriter, r *http.Request) {
 		//sp := &FilePublisher{}
 		//run("rtsp://localhost:8554/"+streamName+"?tcp", sp)
 		trickle.RunSegmentation("rtmp://localhost/"+streamName, sp.NewSegment)
+		slog.Info("Closing stream", "streamName", streamName)
 	}()
 }
 

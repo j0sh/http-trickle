@@ -104,9 +104,7 @@ func (sm *StreamManager) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO properly clear sessions once we have a good solution
-	//      for session reuse
-	return
+	// TODO there is a bit of an issue around session reuse
 
 	stream.clear()
 	sm.mutex.Lock()
@@ -187,11 +185,9 @@ func (s *Stream) handlePost(w http.ResponseWriter, r *http.Request, idx int) {
 	segment, exists := s.getForWrite(idx)
 	if exists {
 		slog.Warn("Overwriting existing entry", "idx", idx)
-		/*
-			// Overwrite anything that exists now. TODO figure out a safer behavior?
-				http.Error(w, "Entry already exists for this index", http.StatusBadRequest)
-				return
-		*/
+		// Overwrite anything that exists now. TODO figure out a safer behavior?
+		http.Error(w, "Entry already exists for this index", http.StatusBadRequest)
+		return
 	}
 
 	// Wrap the request body with the custom timeoutReader

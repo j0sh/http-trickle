@@ -31,11 +31,10 @@ async def main(subscribe_url: str, publish_url: str, params: dict):
             logging.info("Shut down!")
 
     # Set up async signal handling for SIGINT and SIGTERM
-    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
     def stop_signal_handler():
         logging.info("Stopping program due to received signal")
-        stop_event.set()
-    loop = asyncio.get_running_loop()
+        loop.stop()
     loop.add_signal_handler(signal.SIGINT, stop_signal_handler)
     loop.add_signal_handler(signal.SIGTERM, stop_signal_handler)
 
@@ -47,8 +46,6 @@ async def main(subscribe_url: str, publish_url: str, params: dict):
         logging.error(f"Stack trace:\n{traceback.format_exc()}")
         raise e
 
-    await block_until_signal([signal.SIGINT, signal.SIGTERM])
-    await stop_event.wait()
     try:
         await asyncio.gather(subscribe_task, publish_task)
     except Exception as e:
@@ -57,18 +54,6 @@ async def main(subscribe_url: str, publish_url: str, params: dict):
         raise e
 
 
-async def block_until_signal(sigs: List[signal.Signals]):
-    loop = asyncio.get_running_loop()
-    future: asyncio.Future[signal.Signals] = loop.create_future()
-
-    def signal_handler(sig, _):
-        logging.info(f"Received signal: {sig}")
-        loop.call_soon_threadsafe(future.set_result, sig)
-
-    for sig in sigs:
-        signal.signal(sig, signal_handler)
-    return await future
-
 if __name__ == "__main__":
 
     logging.basicConfig(
@@ -76,7 +61,6 @@ if __name__ == "__main__":
         level=logging.INFO,
         datefmt='%Y-%m-%d %H:%M:%S')
 
-    logging.info("JOSH in main")
     parser = argparse.ArgumentParser(description="Infer process to run the AI pipeline")
     parser.add_argument(
         "--initial-params", type=str, default="{}", help="Initial parameters for the pipeline"
@@ -102,4 +86,3 @@ if __name__ == "__main__":
         logging.error(f"Fatal error in main: {e}")
         logging.error(f"Traceback:\n{''.join(traceback.format_tb(e.__traceback__))}")
         sys.exit(1)
-

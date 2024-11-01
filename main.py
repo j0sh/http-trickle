@@ -40,7 +40,7 @@ async def main(subscribe_url: str, publish_url: str, params: dict):
 
     try:
         subscribe_task = asyncio.create_task(trickle.run_subscribe(subscribe_url, image_callback))
-        publish_task = asyncio.create_task(trickle.run_publish(publish_url, image_queue))
+        publish_task = asyncio.create_task(trickle.run_publish(publish_url, image_queue.get))
     except Exception as e:
         logging.error(f"Error starting socket handler or HTTP server: {e}")
         logging.error(f"Stack trace:\n{traceback.format_exc()}")

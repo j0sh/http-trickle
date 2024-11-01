@@ -1,17 +1,21 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"log"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"trickle"
 )
 
 // Listens to new streams from MediaMTX and publishes
 // to trickle HTTP server under the same name
+
+var baseURL *url.URL
 
 type SegmentPoster struct {
 	tricklePublisher *trickle.TricklePublisher
@@ -42,7 +46,11 @@ func (fw *FilePublisher) NewSegment(reader io.Reader) {
 }
 
 func segmentPoster(streamName string) *SegmentPoster {
-	c, err := trickle.NewTricklePublisher("http://localhost:2939/" + streamName)
+	u, err := url.JoinPath(baseURL.String(), streamName)
+	if err != nil {
+		panic(err)
+	}
+	c, err := trickle.NewTricklePublisher(u)
 	if err != nil {
 		panic(err)
 	}
@@ -56,7 +64,7 @@ func listen(host string) {
 		Addr: host,
 	}
 	http.HandleFunc("POST /{streamName}/{$}", newPublish)
-	log.Println("Listening for MediaMTX at ", host)
+	slog.Info("Listening for MediaMTX", "host", host)
 	log.Fatal(srv.ListenAndServe())
 }
 
@@ -76,6 +84,25 @@ func newPublish(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
+func handleArgs() {
+	u := flag.String("url", "http://localhost:2939/", "URL to publish streams to")
+	flag.Parse()
+	var err error
+	baseURL, err = url.Parse(*u)
+	if err != nil {
+		log.Fatal(err)
+	}
+	parsedURL := *baseURL
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		log.Fatal("Invalid URL scheme ", parsedURL.Scheme, " only http and https are allowed.", parsedURL.Scheme)
+	}
+	if parsedURL.Host == "" {
+		log.Fatal("Missing host for URL")
+	}
+	slog.Info("Trickle server", "url", parsedURL.String())
+}
+
 func main() {
+	handleArgs()
 	listen(":2938")
 }

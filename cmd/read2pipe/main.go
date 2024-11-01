@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -23,8 +22,7 @@ func main() {
 
 	client := trickle.NewTrickleSubscriber(*baseURL, *streamName)
 
-	maxSegments := 75
-	for i := 0; i < maxSegments; i++ {
+	for i := 0; true; i++ {
 		// Read and process the first segment
 		resp, err := client.Read()
 		idx := trickle.GetIndex(resp)
@@ -38,7 +36,7 @@ func main() {
 			continue
 		}
 		resp.Body.Close()
-		log.Println("--- End of Segment ", idx, fmt.Sprintf("(%d/%d)", i, maxSegments), "bytes", trickle.HumanBytes(n), " ---")
+		log.Println("--- End of Segment ", idx, "part", i, "bytes", trickle.HumanBytes(n), " ---")
 	}
 	log.Println("Completing", *streamName)
 }

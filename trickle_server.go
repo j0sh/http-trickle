@@ -14,6 +14,11 @@ import (
 
 // TODO sweep idle streams connections
 
+type TrickleServerConfig struct {
+	BasePath string
+	Mux      *http.ServeMux
+}
+
 type StreamManager struct {
 	mutex   sync.RWMutex
 	streams map[string]*Stream
@@ -45,13 +50,27 @@ const BaseServerPath = "/"
 
 var FirstByteTimeout = errors.New("pending read timeout")
 
-func ConfigureServerWithMux(mux *http.ServeMux) {
+func applyDefaults(config *TrickleServerConfig) {
+	if config.BasePath == "" {
+		config.BasePath = "/"
+	}
+	if config.Mux == nil {
+		config.Mux = http.DefaultServeMux
+	}
+}
+
+func ConfigureServer(config TrickleServerConfig) {
 	streamManager := &StreamManager{
 		streams: make(map[string]*Stream),
 	}
-	mux.HandleFunc("GET "+BaseServerPath+"{streamName}/{idx}", streamManager.handleGet)
-	mux.HandleFunc("POST "+BaseServerPath+"{streamName}/{idx}", streamManager.handlePost)
-	mux.HandleFunc("DELETE "+BaseServerPath+"{streamName}", streamManager.handleDelete)
+	applyDefaults(&config)
+	var (
+		mux      = config.Mux
+		basePath = config.BasePath
+	)
+	mux.HandleFunc("GET "+basePath+"{streamName}/{idx}", streamManager.handleGet)
+	mux.HandleFunc("POST "+basePath+"{streamName}/{idx}", streamManager.handlePost)
+	mux.HandleFunc("DELETE "+basePath+"{streamName}", streamManager.handleDelete)
 }
 
 func (sm *StreamManager) getStream(streamName string) (*Stream, bool) {

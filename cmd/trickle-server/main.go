@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"net/http"
 	"time"
@@ -15,7 +16,12 @@ func main() {
 		ReadTimeout:  40 * time.Second,
 		WriteTimeout: 45 * time.Second,
 	}
-	trickle.ConfigureServerWithMux(http.DefaultServeMux)
+
+	p := flag.String("path", "/", "URL to publish streams to")
+	flag.Parse()
+	trickle.ConfigureServer(trickle.TrickleServerConfig{
+		BasePath: *p,
+	})
 	log.Println("Server started at :2939")
 	log.Fatal(srv.ListenAndServe())
 }

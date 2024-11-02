@@ -4,6 +4,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 	"trickle"
 )
@@ -20,8 +21,18 @@ func main() {
 	p := flag.String("path", "/", "URL to publish streams to")
 	flag.Parse()
 	trickle.ConfigureServer(trickle.TrickleServerConfig{
-		BasePath: *p,
+		BasePath: EnsureSlash(*p),
 	})
 	log.Println("Server started at :2939")
 	log.Fatal(srv.ListenAndServe())
+}
+
+func EnsureSlash(s string) string {
+	if !strings.HasPrefix(s, "/") {
+		s = "/" + s
+	}
+	if !strings.HasSuffix(s, "/") {
+		s = s + "/"
+	}
+	return s
 }

@@ -30,6 +30,7 @@ func RunSegmentation(in string, segmentHandler SegmentHandler) {
 		defer wg.Done()
 		processSegments(segmentHandler, outFilePattern, completionSignal)
 	}()
+	// lpms currently does not work on joshs local mac
 	/*
 		ffmpeg.FfmpegSetLogLevel(ffmpeg.FFLogWarning)
 		ffmpeg.Transcode3(&ffmpeg.TranscodeOptionsIn{

@@ -2,13 +2,11 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"trickle"
 )
 
@@ -25,23 +23,6 @@ func (sp *SegmentPoster) NewSegment(reader io.Reader) {
 	go func() {
 		// NB: This blocks! Very bad!
 		sp.tricklePublisher.Write(reader)
-	}()
-}
-
-type FilePublisher struct {
-	count int
-}
-
-func (fw *FilePublisher) NewSegment(reader io.Reader) {
-	go func() {
-		fname := fmt.Sprintf("out-write-rtsp/%d.ts", fw.count)
-		file, err := os.OpenFile(fname, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-		if err != nil {
-			panic(err)
-		}
-		defer file.Close()
-		fw.count += 1
-		io.Copy(file, reader)
 	}()
 }
 
@@ -74,11 +55,8 @@ func newPublish(w http.ResponseWriter, r *http.Request) {
 	slog.Info("Starting stream", "streamName", streamName)
 
 	go func() {
-		//sp := segmentPoster(randomString())
 		sp := segmentPoster(streamName)
 		defer sp.tricklePublisher.Close()
-		//sp := &FilePublisher{}
-		//run("rtsp://localhost:8554/"+streamName+"?tcp", sp)
 		trickle.RunSegmentation("rtmp://localhost/"+streamName, sp.NewSegment)
 		slog.Info("Closing stream", "streamName", streamName)
 	}()

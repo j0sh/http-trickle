@@ -81,7 +81,7 @@ func newPublish(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(2 * time.Second)
 			runSubscribe(streamName)
 		}()
-		trickle.RunSegmentation("rtmp://localhost/"+streamName, sp.NewSegment)
+		(&trickle.MediaSegmenter{}).RunSegmentation("rtmp://localhost/"+streamName, sp.NewSegment)
 	}()
 }
 

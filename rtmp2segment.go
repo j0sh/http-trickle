@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,10 +20,13 @@ import (
 
 var waitTimeout = 20 * time.Second
 
-func RunSegmentation(in string, segmentHandler SegmentHandler) {
+type MediaSegmenter struct {
+	Workdir string
+}
 
-	// TODO workdir stuff
-	outFilePattern := randomString() + "-%d.ts"
+func (ms *MediaSegmenter) RunSegmentation(in string, segmentHandler SegmentHandler) {
+
+	outFilePattern := filepath.Join(ms.Workdir, randomString()+"-%d.ts")
 	completionSignal := make(chan bool, 1)
 	wg := &sync.WaitGroup{}
 	wg.Add(1)

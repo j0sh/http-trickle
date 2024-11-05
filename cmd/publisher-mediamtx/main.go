@@ -58,7 +58,8 @@ func newPublish(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		sp := segmentPoster(streamName)
 		defer sp.tricklePublisher.Close()
-		trickle.RunSegmentation("rtmp://localhost/"+streamName, sp.NewSegment)
+		ms := &trickle.MediaSegmenter{}
+		ms.RunSegmentation("rtmp://localhost/"+streamName, sp.NewSegment)
 		slog.Info("Closing stream", "streamName", streamName)
 	}()
 }

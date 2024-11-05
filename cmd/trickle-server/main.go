@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -20,11 +21,30 @@ func main() {
 
 	p := flag.String("path", "/", "URL to publish streams to")
 	flag.Parse()
-	trickle.ConfigureServer(trickle.TrickleServerConfig{
-		BasePath: EnsureSlash(*p),
+	trickleSrv := trickle.ConfigureServer(trickle.TrickleServerConfig{
+		BasePath:   EnsureSlash(*p),
+		Changefeed: true,
 	})
+	changefeedSubscribe(trickleSrv)
 	log.Println("Server started at :2939")
 	log.Fatal(srv.ListenAndServe())
+}
+
+func changefeedSubscribe(srv *trickle.StreamManager) {
+	go func() {
+		sub := trickle.NewLocalSubscriber(srv, trickle.CHANGEFEED)
+		for true {
+			part, err := sub.Read()
+			if err != nil {
+				log.Fatal("Changefeed error", err)
+			}
+			b, err := io.ReadAll(part.Reader)
+			if err != nil {
+				log.Fatal("Changefeed read error", err)
+			}
+			log.Println("Changefeed", string(b))
+		}
+	}()
 }
 
 func EnsureSlash(s string) string {

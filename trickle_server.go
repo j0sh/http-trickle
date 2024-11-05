@@ -2,6 +2,7 @@ package trickle
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,14 +15,21 @@ import (
 
 // TODO sweep idle streams connections
 
+const CHANGEFEED = "_changes"
+
 type TrickleServerConfig struct {
-	BasePath string
-	Mux      *http.ServeMux
+	BasePath   string
+	Mux        *http.ServeMux
+	Changefeed bool
 }
 
 type StreamManager struct {
 	mutex   sync.RWMutex
 	streams map[string]*Stream
+
+	// for internal channels
+	changefeed  bool
+	internalPub *TrickleLocalPublisher
 }
 
 type Stream struct {
@@ -45,9 +53,12 @@ type SegmentSubscriber struct {
 	readPos int
 }
 
-const maxSegmentsPerStream = 5
+type Changefeed struct {
+	Added   []string `json:"added,omitempty"`
+	Removed []string `json:"removed,omitempty"`
+}
 
-const BaseServerPath = "/"
+const maxSegmentsPerStream = 5
 
 var FirstByteTimeout = errors.New("pending read timeout")
 
@@ -60,18 +71,28 @@ func applyDefaults(config *TrickleServerConfig) {
 	}
 }
 
-func ConfigureServer(config TrickleServerConfig) {
+func ConfigureServer(config TrickleServerConfig) *StreamManager {
 	streamManager := &StreamManager{
-		streams: make(map[string]*Stream),
+		streams:    make(map[string]*Stream),
+		changefeed: config.Changefeed,
 	}
+
+	// set up changefeed
+	if streamManager.changefeed {
+		streamManager.internalPub = NewLocalPublisher(streamManager, CHANGEFEED, "application/json")
+		streamManager.internalPub.CreateStream()
+	}
+
 	applyDefaults(&config)
 	var (
 		mux      = config.Mux
 		basePath = config.BasePath
 	)
+
 	mux.HandleFunc("GET "+basePath+"{streamName}/{idx}", streamManager.handleGet)
 	mux.HandleFunc("POST "+basePath+"{streamName}/{idx}", streamManager.handlePost)
 	mux.HandleFunc("DELETE "+basePath+"{streamName}", streamManager.handleDelete)
+	return streamManager
 }
 
 func (sm *StreamManager) getStream(streamName string) (*Stream, bool) {
@@ -83,7 +104,6 @@ func (sm *StreamManager) getStream(streamName string) (*Stream, bool) {
 
 func (sm *StreamManager) getOrCreateStream(streamName, mimeType string) *Stream {
 	sm.mutex.Lock()
-	defer sm.mutex.Unlock()
 
 	stream, exists := sm.streams[streamName]
 	if !exists {
@@ -95,12 +115,23 @@ func (sm *StreamManager) getOrCreateStream(streamName, mimeType string) *Stream 
 		sm.streams[streamName] = stream
 		slog.Info("Creating stream", "stream", streamName)
 	}
+	sm.mutex.Unlock()
+
+	// update changefeed
+	if !exists && sm.changefeed {
+		jb, _ := json.Marshal(&Changefeed{
+			Added: []string{streamName},
+		})
+		sm.internalPub.Write(bytes.NewReader(jb))
+	}
 	return stream
 }
 
 func (sm *StreamManager) clearAllStreams() {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
+
+	// TODO update changefeed
 
 	for _, stream := range sm.streams {
 		stream.clear()
@@ -117,21 +148,40 @@ func (s *Stream) clear() {
 	s.segments = make([]*Segment, maxSegmentsPerStream)
 }
 
-func (sm *StreamManager) handleDelete(w http.ResponseWriter, r *http.Request) {
-	streamName := r.PathValue("streamName")
+func (sm *StreamManager) closeStream(streamName string) error {
 	stream, exists := sm.getStream(streamName)
 	if !exists {
-		http.Error(w, "Invalid stream name", http.StatusBadRequest)
-		return
+		return errors.New("Invalid stream")
 	}
 
 	// TODO there is a bit of an issue around session reuse
 
 	stream.clear()
 	sm.mutex.Lock()
-	defer sm.mutex.Unlock()
 	delete(sm.streams, streamName)
+	sm.mutex.Unlock()
 	slog.Info("Deleted stream", "streamName", streamName)
+
+	// update changefeed if needed
+	if !sm.changefeed {
+		return nil
+	}
+	jb, err := json.Marshal(&Changefeed{
+		Removed: []string{streamName},
+	})
+	if err != nil {
+		return err
+	}
+	sm.internalPub.Write(bytes.NewReader(jb))
+	return nil
+}
+
+func (sm *StreamManager) handleDelete(w http.ResponseWriter, r *http.Request) {
+	streamName := r.PathValue("streamName")
+	if err := sm.closeStream(streamName); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 }
 
 func (sm *StreamManager) handlePost(w http.ResponseWriter, r *http.Request) {

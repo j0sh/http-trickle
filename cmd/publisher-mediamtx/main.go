@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"io"
 	"log"
@@ -62,6 +63,26 @@ func newPublish(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
+func changefeedSubscribe() {
+	go func() {
+		client := trickle.NewTrickleSubscriber(baseURL.String(), trickle.CHANGEFEED)
+		slog.Info("Reading changefeed")
+		for i := 0; true; i++ {
+			res, err := client.Read()
+			if err != nil {
+				log.Fatal("Failed to read changefeed:", err)
+				continue
+			}
+			ch := trickle.Changefeed{}
+			if err := json.NewDecoder(res.Body).Decode(&ch); err != nil {
+				slog.Error("Failed to deserialize changefeed", "err", err)
+			}
+			slog.Info("Changefeed received", "ch", ch)
+		}
+		slog.Info("Exited changefeed")
+	}()
+}
+
 func handleArgs() {
 	u := flag.String("url", "http://localhost:2939/", "URL to publish streams to")
 	flag.Parse()
@@ -82,5 +103,6 @@ func handleArgs() {
 
 func main() {
 	handleArgs()
+	changefeedSubscribe()
 	listen(":2938")
 }

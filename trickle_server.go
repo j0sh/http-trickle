@@ -29,6 +29,7 @@ type Stream struct {
 	segments    []*Segment
 	latestWrite int
 	name        string
+	mimeType    string
 }
 
 type Segment struct {
@@ -80,7 +81,7 @@ func (sm *StreamManager) getStream(streamName string) (*Stream, bool) {
 	return stream, exists
 }
 
-func (sm *StreamManager) getOrCreateStream(streamName string) *Stream {
+func (sm *StreamManager) getOrCreateStream(streamName, mimeType string) *Stream {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 
@@ -89,6 +90,7 @@ func (sm *StreamManager) getOrCreateStream(streamName string) *Stream {
 		stream = &Stream{
 			segments: make([]*Segment, 5),
 			name:     streamName,
+			mimeType: mimeType,
 		}
 		sm.streams[streamName] = stream
 		slog.Info("Creating stream", "stream", streamName)
@@ -133,7 +135,7 @@ func (sm *StreamManager) handleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (sm *StreamManager) handlePost(w http.ResponseWriter, r *http.Request) {
-	stream := sm.getOrCreateStream(r.PathValue("streamName"))
+	stream := sm.getOrCreateStream(r.PathValue("streamName"), r.Header.Get("Content-Type"))
 	idx, err := strconv.Atoi(r.PathValue("idx"))
 	if err != nil {
 		http.Error(w, "Invalid idx", http.StatusBadRequest)
@@ -341,7 +343,7 @@ func (s *Stream) handleGet(w http.ResponseWriter, r *http.Request, idx int) {
 			if len(data) > 0 {
 				if totalWrites <= 0 {
 					w.Header().Set("Lp-Trickle-Idx", strconv.Itoa(segment.idx))
-					w.Header().Set("Content-Type", "video/MP2T") // TODO take from post
+					w.Header().Set("Content-Type", s.mimeType)
 				}
 				n, err := w.Write(data)
 				totalWrites += n

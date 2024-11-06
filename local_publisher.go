@@ -27,7 +27,7 @@ func NewLocalPublisher(sm *Server, channelName string, mimeType string) *Trickle
 	}
 }
 
-func (c *TrickleLocalPublisher) CreateStream() {
+func (c *TrickleLocalPublisher) CreateChannel() {
 	c.server.getOrCreateStream(c.channelName, c.mimeType)
 }
 

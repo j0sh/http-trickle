@@ -35,7 +35,7 @@ func GetIndex(resp *http.Response) int {
 	if resp == nil {
 		return -1 // TODO hmm
 	}
-	v := resp.Header.Get("Lp-Trickle-Idx")
+	v := resp.Header.Get("Lp-Trickle-Seq")
 	i, err := strconv.Atoi(v)
 	if err != nil {
 		// Fetch the latest index

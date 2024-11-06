@@ -12,13 +12,13 @@ import (
 type TrickleLocalPublisher struct {
 	channelName string
 	mimeType    string
-	server      *StreamManager
+	server      *Server
 
 	mu  *sync.Mutex
 	seq int
 }
 
-func NewLocalPublisher(sm *StreamManager, channelName string, mimeType string) *TrickleLocalPublisher {
+func NewLocalPublisher(sm *Server, channelName string, mimeType string) *TrickleLocalPublisher {
 	return &TrickleLocalPublisher{
 		channelName: channelName,
 		server:      sm,

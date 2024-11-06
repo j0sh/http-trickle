@@ -22,6 +22,9 @@ var waitTimeout = 20 * time.Second
 
 type MediaSegmenter struct {
 	Workdir string
+
+	// File descriptors to inherit
+	ExtraFiles []*os.File
 }
 
 func (ms *MediaSegmenter) RunSegmentation(in string, segmentHandler SegmentHandler) {
@@ -52,6 +55,9 @@ func (ms *MediaSegmenter) RunSegmentation(in string, segmentHandler SegmentHandl
 		ffmpegPath = "ffmpeg"
 	}
 	cmd := exec.Command(ffmpegPath, "-i", in, "-c", "copy", "-f", "segment", outFilePattern)
+	if ms.ExtraFiles != nil {
+		cmd.ExtraFiles = ms.ExtraFiles
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		slog.Error("Error running ffmpeg", "err", err)

@@ -30,7 +30,7 @@ func main() {
 	log.Fatal(srv.ListenAndServe())
 }
 
-func changefeedSubscribe(srv *trickle.StreamManager) {
+func changefeedSubscribe(srv *trickle.Server) {
 	go func() {
 		sub := trickle.NewLocalSubscriber(srv, trickle.CHANGEFEED)
 		for true {

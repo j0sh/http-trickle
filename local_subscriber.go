@@ -17,13 +17,13 @@ type TrickleData struct {
 
 type TrickleLocalSubscriber struct {
 	channelName string
-	server      *StreamManager
+	server      *Server
 
 	mu  *sync.Mutex
 	seq int
 }
 
-func NewLocalSubscriber(sm *StreamManager, channelName string) *TrickleLocalSubscriber {
+func NewLocalSubscriber(sm *Server, channelName string) *TrickleLocalSubscriber {
 	return &TrickleLocalSubscriber{
 		channelName: channelName,
 		server:      sm,

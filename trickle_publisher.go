@@ -95,7 +95,10 @@ func (c *TricklePublisher) Close() error {
 	if err != nil {
 		return err
 	}
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := (&http.Client{Transport: &http.Transport{
+		// ignore orch certs for now
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}}).Do(req)
 	if err != nil {
 		return err
 	}
@@ -143,7 +146,7 @@ func (c *TricklePublisher) Write(data io.Reader) error {
 		return fmt.Errorf("error streaming data to segment %d: %w", index, err)
 	}
 
-	slog.Info("Completed writing", "idx", index, "totalBytes", HumanBytes(n))
+	slog.Info("Completed writing", "idx", index, "totalBytes", humanBytes(n))
 
 	// Close the pipe writer to signal end of data for the current POST request
 	if err := writer.Close(); err != nil {
@@ -151,4 +154,17 @@ func (c *TricklePublisher) Write(data io.Reader) error {
 	}
 
 	return nil
+}
+
+func humanBytes(bytes int64) string {
+	var unit int64 = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := unit, 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }

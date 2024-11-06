@@ -23,7 +23,7 @@ type TrickleServerConfig struct {
 	Changefeed bool
 }
 
-type StreamManager struct {
+type Server struct {
 	mutex   sync.RWMutex
 	streams map[string]*Stream
 
@@ -71,8 +71,8 @@ func applyDefaults(config *TrickleServerConfig) {
 	}
 }
 
-func ConfigureServer(config TrickleServerConfig) *StreamManager {
-	streamManager := &StreamManager{
+func ConfigureServer(config TrickleServerConfig) *Server {
+	streamManager := &Server{
 		streams:    make(map[string]*Stream),
 		changefeed: config.Changefeed,
 	}
@@ -95,20 +95,20 @@ func ConfigureServer(config TrickleServerConfig) *StreamManager {
 	return streamManager
 }
 
-func (sm *StreamManager) getStream(streamName string) (*Stream, bool) {
+func (sm *Server) getStream(streamName string) (*Stream, bool) {
 	sm.mutex.RLock()
 	defer sm.mutex.RUnlock()
 	stream, exists := sm.streams[streamName]
 	return stream, exists
 }
 
-func (sm *StreamManager) getOrCreateStream(streamName, mimeType string) *Stream {
+func (sm *Server) getOrCreateStream(streamName, mimeType string) *Stream {
 	sm.mutex.Lock()
 
 	stream, exists := sm.streams[streamName]
 	if !exists {
 		stream = &Stream{
-			segments: make([]*Segment, 5),
+			segments: make([]*Segment, maxSegmentsPerStream),
 			name:     streamName,
 			mimeType: mimeType,
 		}
@@ -127,7 +127,7 @@ func (sm *StreamManager) getOrCreateStream(streamName, mimeType string) *Stream 
 	return stream
 }
 
-func (sm *StreamManager) clearAllStreams() {
+func (sm *Server) clearAllStreams() {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 
@@ -148,7 +148,7 @@ func (s *Stream) clear() {
 	s.segments = make([]*Segment, maxSegmentsPerStream)
 }
 
-func (sm *StreamManager) closeStream(streamName string) error {
+func (sm *Server) closeStream(streamName string) error {
 	stream, exists := sm.getStream(streamName)
 	if !exists {
 		return errors.New("Invalid stream")
@@ -176,7 +176,7 @@ func (sm *StreamManager) closeStream(streamName string) error {
 	return nil
 }
 
-func (sm *StreamManager) handleDelete(w http.ResponseWriter, r *http.Request) {
+func (sm *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	streamName := r.PathValue("streamName")
 	if err := sm.closeStream(streamName); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -184,7 +184,7 @@ func (sm *StreamManager) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (sm *StreamManager) handlePost(w http.ResponseWriter, r *http.Request) {
+func (sm *Server) handlePost(w http.ResponseWriter, r *http.Request) {
 	stream := sm.getOrCreateStream(r.PathValue("streamName"), r.Header.Get("Content-Type"))
 	idx, err := strconv.Atoi(r.PathValue("idx"))
 	if err != nil {
@@ -226,31 +226,6 @@ func (tr *timeoutReader) Read(p []byte) (int, error) {
 	}
 }
 
-// TODO retry handling.
-//
-// What can happen is roughly the following:
-// client abruptly stops sending a segment X
-// client needs to continue at segment Y (Y > X, usually Y = X + 2)
-//
-// What needs to happen:
-//  server needs to keep track of bytes received at X
-//  For Y, client sends *full* segment (overlapping X)
-//  Server *discards* overlap bytes between X and Y
-//
-// client sends a POST for segment Y with a retry indication
-// Segment X can only be the last segment that the client sent content for.
-// Server should close segment X
-// (the server can continue transmitting what it has so far for Segment X to,
-// clients that are still downloading it, but should not add any more to X's buffer)
-// Also the server should close any pending POST and GET requests for X < segment < Y
-// even if these segment have NO data. This would mean marking any pending POST
-// segments as 'closed' and returning empty data (but still a 200 OK) to any
-// clients that GET these segments.
-// (in practice this would just be a single pre-connection for X + 1)
-// Server discards bytes for Segment Y up to its last read byte of Segment X
-// After reaching the last read byte, start buffering up the bytes of Segment Y
-// as they come in. Process requests normally.
-
 // Handle post requests for a given index
 func (s *Stream) handlePost(w http.ResponseWriter, r *http.Request, idx int) {
 	segment, exists := s.getForWrite(idx)
@@ -261,7 +236,8 @@ func (s *Stream) handlePost(w http.ResponseWriter, r *http.Request, idx int) {
 		return
 	}
 
-	// Wrap the request body with the custom timeoutReader
+	// Wrap the request body with the custom timeoutReader so we can send
+	// provisional headers (keepalives) until receiving the first byte
 	reader := &timeoutReader{
 		body: r.Body,
 		// This can't be too short for now but ideally it'd be like 1 second
@@ -347,7 +323,7 @@ func (s *Stream) getForRead(idx int) (*Segment, bool) {
 	return segment, exists(segment, idx)
 }
 
-func (sm *StreamManager) handleGet(w http.ResponseWriter, r *http.Request) {
+func (sm *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	stream, exists := sm.getStream(r.PathValue("streamName"))
 	if !exists {
 		http.Error(w, "Stream not found", http.StatusNotFound)
@@ -392,7 +368,7 @@ func (s *Stream) handleGet(w http.ResponseWriter, r *http.Request, idx int) {
 			data, eof := subscriber.readData()
 			if len(data) > 0 {
 				if totalWrites <= 0 {
-					w.Header().Set("Lp-Trickle-Idx", strconv.Itoa(segment.idx))
+					w.Header().Set("Lp-Trickle-Seq", strconv.Itoa(segment.idx))
 					w.Header().Set("Content-Type", s.mimeType)
 				}
 				n, err := w.Write(data)

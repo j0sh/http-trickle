@@ -11,7 +11,14 @@ trickle-server:
 subscriber-example:
 	go run cmd/subscriber-example.go trickle_subscriber.go trickle_publisher.go --stream $(stream)
 
-pubsub:
+publisher-ffmpeg:
+	$(if $(in),, $(error in file is not set. Please provide in= as an argument))
+	ffmpeg -loglevel warning -re -i $(in) -c copy -f mpegts - | go run cmd/publisher-ffmpeg/*.go --stream $(stream) $(if $(url),--url $(url))
+
+pubsub-out:
+	go run cmd/publisher-out/*.go $(if $(url),--url $(url))
+
+pubsub-pipe:
 	go run cmd/pubsub-mediamtx/*.go --out $(out)
 
 publisher:

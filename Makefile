@@ -9,7 +9,7 @@ trickle-server:
 # Listens for a connection from MediaMTX
 # Run `make subscriber-example stream=streamname`
 subscriber-example:
-	go run cmd/subscriber-example.go trickle_subscriber.go trickle_publisher.go --stream $(stream)
+	go run cmd/subscriber-example/*.go --stream $(stream)
 
 publisher-ffmpeg:
 	$(if $(in),, $(error in file is not set. Please provide in= as an argument))

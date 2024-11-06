@@ -1,6 +1,7 @@
 package trickle
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,8 +12,7 @@ import (
 
 // TrickleSubscriber represents a trickle streaming reader that always fetches from index -1
 type TrickleSubscriber struct {
-	baseURL    string
-	streamName string
+	url        string
 	mu         sync.Mutex     // Mutex to manage concurrent access
 	pendingGet *http.Response // Pre-initialized GET request
 	idx        int            // Segment index to request
@@ -22,12 +22,11 @@ type TrickleSubscriber struct {
 }
 
 // NewTrickleSubscriber creates a new trickle stream reader for GET requests
-func NewTrickleSubscriber(baseURL, streamName string) *TrickleSubscriber {
+func NewTrickleSubscriber(url string) *TrickleSubscriber {
 	// No preconnect needed here; it will be handled by the first Read call.
 	return &TrickleSubscriber{
-		baseURL:    baseURL,
-		streamName: streamName,
-		idx:        -1, // shortcut for 'latest'
+		url: url,
+		idx: -1, // shortcut for 'latest'
 	}
 }
 
@@ -47,7 +46,7 @@ func GetIndex(resp *http.Response) int {
 
 // preconnect pre-initializes the next GET request for fetching the next segment (always index -1)
 func (c *TrickleSubscriber) preconnect() (*http.Response, error) {
-	url := fmt.Sprintf("%s/%s/%d", c.baseURL, c.streamName, c.idx)
+	url := fmt.Sprintf("%s/%d", c.url, c.idx)
 	slog.Info("preconnecting", "url", url)
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -57,7 +56,9 @@ func (c *TrickleSubscriber) preconnect() (*http.Response, error) {
 	}
 
 	// Execute the GET request
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := (&http.Client{Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}}).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to complete GET for next segment: %w", err)
 	}
@@ -81,7 +82,7 @@ func (c *TrickleSubscriber) Read() (*http.Response, error) {
 	// TODO clean up this preconnect error handling!
 	hitMaxPreconnects := c.preconnectErrorCount > 5
 	if hitMaxPreconnects {
-		slog.Error("Hit max preconnect error", "stream", c.streamName, "idx", c.idx)
+		slog.Error("Hit max preconnect error", "url", c.url, "idx", c.idx)
 		c.mu.Unlock()
 		return nil, fmt.Errorf("Hit max preconnects")
 	}
@@ -90,7 +91,7 @@ func (c *TrickleSubscriber) Read() (*http.Response, error) {
 	conn := c.pendingGet
 	if conn == nil {
 		// Preconnect if we don't have a pending GET
-		slog.Info("No preconnect, connecting", "stream", c.streamName, "idx", c.idx)
+		slog.Info("No preconnect, connecting", "url", c.url, "idx", c.idx)
 		p, err := c.preconnect()
 		if err != nil {
 			c.preconnectErrorCount++

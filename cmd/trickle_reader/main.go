@@ -9,7 +9,8 @@ import (
 	"trickle"
 )
 
-// TrickleReader example usage
+// TrickleSubscriber example - write segments to stdout
+
 func main() {
 
 	// Check some command-line arguments
@@ -20,7 +21,7 @@ func main() {
 		log.Fatalf("Error: stream name is required. Use -stream flag to specify the stream name.")
 	}
 
-	client := trickle.NewTrickleSubscriber(*baseURL, *streamName)
+	client := trickle.NewTrickleSubscriber(*baseURL + "/" + *streamName)
 
 	maxSegments := 75
 	for i := 0; i < maxSegments; i++ {

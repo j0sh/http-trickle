@@ -77,7 +77,7 @@ func newPublish(w http.ResponseWriter, r *http.Request) {
 }
 
 func runSubscribe(streamName string) error {
-	sub := trickle.NewTrickleSubscriber(baseURL.String(), streamName)
+	sub := trickle.NewTrickleSubscriber(baseURL.String() + streamName)
 	r, w, err := os.Pipe()
 	if err != nil {
 		slog.Error("Could not open ffmpeg pipe", "stream", streamName, "err", err)
@@ -116,7 +116,7 @@ func runSubscribe(streamName string) error {
 
 func changefeedSubscribe() {
 	go func() {
-		client := trickle.NewTrickleSubscriber(baseURL.String(), trickle.CHANGEFEED)
+		client := trickle.NewTrickleSubscriber(baseURL.String() + trickle.CHANGEFEED)
 		for i := 0; true; i++ {
 			res, err := client.Read()
 			if err != nil {

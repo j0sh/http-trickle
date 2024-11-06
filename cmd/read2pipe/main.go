@@ -20,7 +20,7 @@ func main() {
 		log.Fatalf("Error: stream name is required. Use -stream flag to specify the stream name.")
 	}
 
-	client := trickle.NewTrickleSubscriber(*baseURL, *streamName)
+	client := trickle.NewTrickleSubscriber(*baseURL + "/" + *streamName)
 
 	for i := 0; true; i++ {
 		// Read and process the first segment

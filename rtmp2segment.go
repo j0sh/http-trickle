@@ -62,7 +62,7 @@ func (ms *MediaSegmenter) RunSegmentation(in string, segmentHandler SegmentHandl
 	if err != nil {
 		slog.Error("Error running ffmpeg", "err", err)
 	}
-	fmt.Println(string(out))
+	slog.Debug(string(out))
 	completionSignal <- true
 	slog.Info("sent completion signal, now waiting")
 	wg.Wait()
@@ -244,14 +244,14 @@ func readSegment(segmentHandler SegmentHandler, file *os.File, pipeName string) 
 		n, err := reader.Read(buf)
 		if n > 0 {
 			if !firstByteRead {
-				slog.Info("First byte read", "pipeName", pipeName)
+				slog.Debug("First byte read", "pipeName", pipeName)
 				firstByteRead = true
 
 			}
 			totalBytesRead += int64(n)
 			if _, err := interfaceWriter.Write(buf[:n]); err != nil {
 				if err != io.EOF {
-					slog.Info("Error writing", "pipeName", pipeName, "err", err)
+					slog.Error("Error writing", "pipeName", pipeName, "err", err)
 				}
 			}
 		}
@@ -263,7 +263,7 @@ func readSegment(segmentHandler SegmentHandler, file *os.File, pipeName string) 
 
 		if err != nil {
 			if err.Error() == "EOF" {
-				slog.Info("Last byte read", "pipeName", pipeName, "totalRead", HumanBytes(totalBytesRead))
+				slog.Debug("Last byte read", "pipeName", pipeName, "totalRead", HumanBytes(totalBytesRead))
 			} else {
 				slog.Error("Error reading", "pipeName", pipeName, "err", err)
 			}

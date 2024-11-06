@@ -159,6 +159,7 @@ func handleArgs() {
 }
 
 func main() {
+	//slog.SetLogLoggerLevel(slog.LevelDebug)
 	handleArgs()
 	changefeedSubscribe()
 	listen(":2938")

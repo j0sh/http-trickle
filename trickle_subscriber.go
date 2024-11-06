@@ -47,11 +47,11 @@ func GetSeq(resp *http.Response) int {
 // preconnect pre-initializes the next GET request for fetching the next segment (always index -1)
 func (c *TrickleSubscriber) preconnect() (*http.Response, error) {
 	url := fmt.Sprintf("%s/%d", c.url, c.idx)
-	slog.Info("preconnecting", "url", url)
+	slog.Debug("preconnecting", "url", url)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		fmt.Printf("Failed to create request for segment: %v\n", err)
+		slog.Error("Failed to create request for segment", "url", url, "err", err)
 		return nil, err
 	}
 
@@ -91,7 +91,7 @@ func (c *TrickleSubscriber) Read() (*http.Response, error) {
 	conn := c.pendingGet
 	if conn == nil {
 		// Preconnect if we don't have a pending GET
-		slog.Info("No preconnect, connecting", "url", c.url, "idx", c.idx)
+		slog.Debug("No preconnect, connecting", "url", c.url, "idx", c.idx)
 		p, err := c.preconnect()
 		if err != nil {
 			c.preconnectErrorCount++
@@ -115,7 +115,7 @@ func (c *TrickleSubscriber) Read() (*http.Response, error) {
 		defer c.mu.Unlock()
 		nextConn, err := c.preconnect()
 		if err != nil {
-			slog.Error("failed to preconnect next segment", "idx", c.idx, "err", err)
+			slog.Error("failed to preconnect next segment", "url", c.url, "idx", c.idx, "err", err)
 			c.preconnectErrorCount++
 			return
 		}

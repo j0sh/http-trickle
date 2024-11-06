@@ -131,7 +131,9 @@ func changefeedSubscribe() {
 			// Subscribe to new streams with the sufix "-out"
 			for _, stream := range ch.Added {
 				if strings.HasSuffix(stream, "-out") {
-					runSubscribe(stream)
+					go func() {
+						runSubscribe(stream)
+					}()
 				}
 			}
 		}

@@ -1,12 +1,16 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"log/slog"
 	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 	"trickle"
 )
 
@@ -50,9 +54,15 @@ func runPublish(streamName string) {
 		slog.Error("Error acquriing r/w pipes", "stream", streamName, "err", err)
 		os.Exit(1)
 	}
-	defer w.Close()
 
+	// Listen for the interrupt signal to initiate a graceful shutdown
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	wg, doneCh := WaitGroupWithDone()
+
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		sp := segmentPoster(streamName)
 		defer sp.tricklePublisher.Close()
 		(&trickle.MediaSegmenter{
@@ -61,9 +71,39 @@ func runPublish(streamName string) {
 		slog.Info("Completing publish", "stream", streamName)
 	}()
 
-	if _, err := io.Copy(w, os.Stdin); err != io.EOF {
-		slog.Error("Error copying", "stream", streamName, "err", err)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if _, err := io.Copy(w, os.Stdin); !errors.Is(err, io.EOF) && !errors.Is(err, os.ErrClosed) {
+			slog.Error("Error copying", "stream", streamName, "err", err)
+		}
+		w.Close() // Close to stop the segmenter
+	}()
+
+	// Wait for either a signal or the completion of io.Copy
+	select {
+	case <-sigs:
+		slog.Info("Received interrupt, shutting down...")
+		w.Close() // Close the write end of the pipe to stop the io.Copy
+		wg.Wait()
+	case <-doneCh:
 	}
+	slog.Info("Stopped stream", "stream", streamName)
+}
+
+// WaitGroupWithDone returns a `*sync.WaitGroup` and a `doneChannel`
+// that will be closed once all goroutines have completed.
+func WaitGroupWithDone() (*sync.WaitGroup, <-chan struct{}) {
+	wg := &sync.WaitGroup{}
+	done := make(chan struct{})
+
+	// This goroutine waits for all tasks to finish and then closes the channel
+	go func() {
+		wg.Wait()   // Block until WaitGroup counter is zero
+		close(done) // Close the channel to signal completion
+	}()
+
+	return wg, done
 }
 
 func main() {

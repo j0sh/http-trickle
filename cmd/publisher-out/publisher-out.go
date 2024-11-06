@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -104,6 +105,9 @@ func runSubscribe(streamName string) error {
 	for {
 		resp, err := sub.Read()
 		if err != nil {
+			if errors.Is(err, trickle.EOS) {
+				slog.Info("End of stream signal", "stream", streamName)
+			}
 			slog.Error("Error reading subscription", "stream", streamName, "err", err)
 			break
 		}

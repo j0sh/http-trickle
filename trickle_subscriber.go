@@ -2,6 +2,7 @@ package trickle
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"sync"
 )
+
+var EOS = errors.New("End of stream")
 
 // TrickleSubscriber represents a trickle streaming reader that always fetches from index -1
 type TrickleSubscriber struct {
@@ -32,16 +35,20 @@ func NewTrickleSubscriber(url string) *TrickleSubscriber {
 
 func GetSeq(resp *http.Response) int {
 	if resp == nil {
-		return -1 // TODO hmm
+		return -99 // TODO hmm
 	}
 	v := resp.Header.Get("Lp-Trickle-Seq")
 	i, err := strconv.Atoi(v)
 	if err != nil {
 		// Fetch the latest index
 		// TODO think through whether this is desirable
-		return -1
+		return -98
 	}
 	return i
+}
+
+func IsEOS(resp *http.Response) bool {
+	return resp.Header.Get("Lp-Trickle-Closed") != ""
 }
 
 // preconnect pre-initializes the next GET request for fetching the next segment (always index -1)
@@ -101,6 +108,10 @@ func (c *TrickleSubscriber) Read() (*http.Response, error) {
 		conn = p
 		// reset preconnect error
 		c.preconnectErrorCount = 0
+	}
+
+	if IsEOS(conn) {
+		return nil, EOS
 	}
 
 	// Set to use the next index for the next (pre-)connection

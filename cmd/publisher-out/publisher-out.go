@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"log/slog"
@@ -13,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 	"trickle"
 )
 
@@ -66,14 +66,14 @@ func newPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("Starting stream", "streamName", streamName)
+	slog.Info("Publishing stream", "streamName", streamName)
 
 	go func() {
 		sp := segmentPoster(streamName)
 		defer sp.tricklePublisher.Close()
 		ms := &trickle.MediaSegmenter{}
 		ms.RunSegmentation("rtmp://localhost/"+streamName, sp.NewSegment)
-		slog.Info("Closing stream", "streamName", streamName)
+		slog.Info("Unpublishing stream", "streamName", streamName)
 	}()
 }
 
@@ -84,22 +84,39 @@ func runSubscribe(streamName string) error {
 		slog.Error("Could not open ffmpeg pipe", "stream", streamName, "err", err)
 		return err
 	}
-	defer w.Close()
 	slog.Info("Subscribing", "stream", streamName)
+	ffmpegDone := make(chan struct{})
+	subscriptionDone := make(chan struct{})
+	rc := retryCounter{}
 
 	go func() {
 		// lpms currently does not work on joshs local mac
+		defer close(ffmpegDone)
 		ffmpegPath := os.Getenv("FFMPEG_PATH")
 		if ffmpegPath == "" {
 			ffmpegPath = "ffmpeg"
 		}
-		cmd := exec.Command(ffmpegPath, "-i", "-", "-c", "copy", "-f", "flv", "rtmp://localhost/"+streamName)
-		cmd.Stdin = r
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			slog.Error("Error running ffmpeg", "err", err)
+		for {
+			cmd := exec.Command(ffmpegPath, "-i", "-", "-c", "copy", "-f", "flv", "rtmp://localhost/"+streamName)
+			cmd.Stdin = r
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				slog.Error("Error running ffmpeg", "err", err)
+			}
+			slog.Debug(string(out))
+			select {
+			case <-subscriptionDone:
+				return
+			default:
+				// probably premature exit so try again
+				if !rc.checkRetry() {
+					slog.Info("Max retries hit, closing", "stream", streamName)
+					return
+				} else {
+					slog.Info("Retrying ffmpeg input", "stream", streamName)
+				}
+			}
 		}
-		fmt.Println(string(out))
 	}()
 
 	for {
@@ -111,9 +128,18 @@ func runSubscribe(streamName string) error {
 			slog.Error("Error reading subscription", "stream", streamName, "err", err)
 			break
 		}
-		io.Copy(w, resp.Body)
-		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			io.Copy(w, resp.Body)
+			resp.Body.Close()
+		} else {
+			slog.Error("Non-200 status code", "stream", streamName, "code", resp.StatusCode)
+			resp.Body.Close()
+			break
+		}
 	}
+	close(subscriptionDone)
+	w.Close()
+	<-ffmpegDone
 	slog.Info("Subscription stopped", "stream", streamName)
 	return nil
 }
@@ -121,7 +147,7 @@ func runSubscribe(streamName string) error {
 func changefeedSubscribe() {
 	go func() {
 		client := trickle.NewTrickleSubscriber(baseURL.String() + trickle.CHANGEFEED)
-		for i := 0; true; i++ {
+		for {
 			res, err := client.Read()
 			if err != nil {
 				log.Fatal("Failed to read changefeed:", err)
@@ -129,19 +155,44 @@ func changefeedSubscribe() {
 			}
 			ch := trickle.Changefeed{}
 			if err := json.NewDecoder(res.Body).Decode(&ch); err != nil {
-				slog.Error("Failed to deserialize changefeed", "err", err)
+				slog.Error("Failed to deserialize changefeed", "seq", trickle.GetSeq(res), "err", err)
+				continue
 			}
 			slog.Info("Changefeed received", "ch", ch)
 			// Subscribe to new streams with the sufix "-out"
 			for _, stream := range ch.Added {
 				if strings.HasSuffix(stream, "-out") {
-					go func() {
-						runSubscribe(stream)
-					}()
+					go runSubscribe(stream)
 				}
 			}
 		}
 	}()
+}
+
+type retryCounter struct {
+	retryCount int
+	firstRetry time.Time
+}
+
+func (rc *retryCounter) checkRetry() bool {
+	const maxRetries = 5
+	const retryInterval = 30 * time.Second
+
+	// Check if the retry limit has been exceeded
+	if rc.retryCount == 0 {
+		rc.firstRetry = time.Now()
+	}
+	if time.Since(rc.firstRetry) > retryInterval {
+		// Reset counter and timestamp after interval
+		rc.retryCount = 0
+		rc.firstRetry = time.Now()
+	}
+
+	rc.retryCount++
+	if rc.retryCount > maxRetries {
+		return false
+	}
+	return true
 }
 
 func handleArgs() {

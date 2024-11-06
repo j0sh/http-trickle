@@ -80,7 +80,7 @@ func ConfigureServer(config TrickleServerConfig) *Server {
 	// set up changefeed
 	if streamManager.changefeed {
 		streamManager.internalPub = NewLocalPublisher(streamManager, CHANGEFEED, "application/json")
-		streamManager.internalPub.CreateStream()
+		streamManager.internalPub.CreateChannel()
 	}
 
 	applyDefaults(&config)
@@ -313,7 +313,7 @@ func (s *Stream) getForRead(idx int) (*Segment, bool) {
 	}
 	segmentPos := idx % maxSegmentsPerStream
 	segment := s.segments[segmentPos]
-	if !exists(segment, idx) && idx == s.latestWrite+1 {
+	if !exists(segment, idx) && (idx == s.latestWrite+1 || (idx == 0 && s.latestWrite == 0)) {
 		// read request is just a little bit ahead of write head
 		segment = newSegment(idx)
 		s.segments[segmentPos] = segment

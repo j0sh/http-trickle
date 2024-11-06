@@ -56,7 +56,7 @@ func runSubscribe(streamName string) error {
 			slog.Error("Error getting client reader", "stream", streamName, "err", err)
 			break
 		}
-		idx := trickle.GetIndex(resp)
+		idx := trickle.GetSeq(resp)
 		n, err := io.Copy(outPipe, resp.Body)
 		if err != nil {
 			slog.Error("Error copying to output", "stream", streamName, "idx", idx, "err", err, "copied", n)

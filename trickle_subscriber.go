@@ -30,7 +30,7 @@ func NewTrickleSubscriber(url string) *TrickleSubscriber {
 	}
 }
 
-func GetIndex(resp *http.Response) int {
+func GetSeq(resp *http.Response) int {
 	if resp == nil {
 		return -1 // TODO hmm
 	}
@@ -104,7 +104,7 @@ func (c *TrickleSubscriber) Read() (*http.Response, error) {
 	}
 
 	// Set to use the next index for the next (pre-)connection
-	idx := GetIndex(conn)
+	idx := GetSeq(conn)
 	if idx != -1 {
 		c.idx = idx + 1
 	}
@@ -121,7 +121,7 @@ func (c *TrickleSubscriber) Read() (*http.Response, error) {
 		}
 
 		c.pendingGet = nextConn
-		idx := GetIndex(conn)
+		idx := GetSeq(nextConn)
 		if idx != -1 {
 			c.idx = idx + 1
 		}

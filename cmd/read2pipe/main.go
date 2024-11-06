@@ -25,7 +25,7 @@ func main() {
 	for i := 0; true; i++ {
 		// Read and process the first segment
 		resp, err := client.Read()
-		idx := trickle.GetIndex(resp)
+		idx := trickle.GetSeq(resp)
 		if err != nil {
 			log.Fatal("Failed to read segment", idx, err)
 			continue

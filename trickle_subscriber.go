@@ -1,6 +1,7 @@
 package trickle
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -9,9 +10,12 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 )
 
 var EOS = errors.New("End of stream")
+
+const preconnectRefreshTimeout = 20 * time.Second
 
 // TrickleSubscriber represents a trickle streaming reader that always fetches from index -1
 type TrickleSubscriber struct {
@@ -51,12 +55,11 @@ func IsEOS(resp *http.Response) bool {
 	return resp.Header.Get("Lp-Trickle-Closed") != ""
 }
 
-// preconnect pre-initializes the next GET request for fetching the next segment (always index -1)
-func (c *TrickleSubscriber) preconnect() (*http.Response, error) {
+func (c *TrickleSubscriber) connect(ctx context.Context) (*http.Response, error) {
 	url := fmt.Sprintf("%s/%d", c.url, c.idx)
 	slog.Debug("preconnecting", "url", url)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		slog.Error("Failed to create request for segment", "url", url, "err", err)
 		return nil, err
@@ -80,17 +83,55 @@ func (c *TrickleSubscriber) preconnect() (*http.Response, error) {
 	return resp, nil
 }
 
+// preconnect pre-initializes the next GET request for fetching the next segment
+// This blocks until headers are received  as soon as data is ready.
+// If blocking takes a while, it re-creates the connection every so often.
+func (c *TrickleSubscriber) preconnect() (*http.Response, error) {
+	respCh := make(chan *http.Response, 1)
+	errCh := make(chan error, 1)
+	runConnect := func(ctx context.Context) {
+		go func() {
+			resp, err := c.connect(ctx)
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					// cancelled as part of a preconnect refresh, so ignore
+					return
+				}
+				errCh <- err
+				return
+			}
+			respCh <- resp
+		}()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	runConnect(ctx)
+	for {
+		select {
+		case err := <-errCh:
+			return nil, err
+		case resp := <-respCh:
+			return resp, nil
+		case <-time.After(preconnectRefreshTimeout):
+			cancel()
+			ctx, cancel = context.WithCancel(context.Background())
+			runConnect(ctx)
+		}
+	}
+}
+
 // Read retrieves data from the current segment and sets up the next segment concurrently.
 // It returns the reader for the current segment's data.
 func (c *TrickleSubscriber) Read() (*http.Response, error) {
+
 	// Acquire lock to manage access to pendingGet
+	// Blocking is intentional if there is no preconnect
 	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	// TODO clean up this preconnect error handling!
 	hitMaxPreconnects := c.preconnectErrorCount > 5
 	if hitMaxPreconnects {
 		slog.Error("Hit max preconnect error", "url", c.url, "idx", c.idx)
-		c.mu.Unlock()
 		return nil, fmt.Errorf("Hit max preconnects")
 	}
 
@@ -102,7 +143,6 @@ func (c *TrickleSubscriber) Read() (*http.Response, error) {
 		p, err := c.preconnect()
 		if err != nil {
 			c.preconnectErrorCount++
-			c.mu.Unlock()
 			return nil, err
 		}
 		conn = p
@@ -140,8 +180,7 @@ func (c *TrickleSubscriber) Read() (*http.Response, error) {
 		c.preconnectErrorCount = 0
 	}()
 
-	// Now unlock since the next segment is set up and we have the reader for the current one
-	c.mu.Unlock()
+	// Now the segment is set up and we have the reader for the current one
 
 	// Return the reader for the current segment
 	return conn, nil

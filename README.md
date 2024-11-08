@@ -57,3 +57,132 @@ Subscribers can initiate a subscribe with a `seq` of -N to get the Nth-from-last
 The server should send subscribers `Lp-Trickle-Size` metadata to indicate the size of the content up until now. This allows clients to know where the live edge is, eg video implementations can decode-and-discard frames up until the edge to achieve immediate playback without waiting for the next segment. (TODO)
 
 The server currently has a special changefeed channel named `_changes` which will send subscribers updates on streams that are added and removed. The changefeed is disabled by default.
+
+## Sample Programs
+
+The base trickle tools require golang 1.22+
+
+### Trickle Server
+
+This spins up a new trickle server on http://localhost:2939. Changefeeds are enabled on this server.
+
+```
+make trickle-server
+```
+
+#### Options
+* `path`: Base path for the trickle server. Eg, `path=foo` makes the trickle server respond to `http://localhost:2939/foo`
+
+### Playback Trickle Video Streams
+
+Requires ffplay
+```
+make play stream=<stream-name>
+```
+
+#### Options
+* `url`: URL of the trickle server if not localhost
+
+
+### Send trickled data to standard output
+
+```
+go run cmd/read2pipe/*.go --stream <stream-name>
+```
+
+#### Options
+* `--url` : URL of the trickle server if not localhost
+
+### Trickle Video File Publisher
+
+Requires ffmpeg
+
+```
+make publisher-ffmpeg in=<in-file> stream=<trickle-stream-name>
+```
+
+#### Options
+* `url`: URL of the trickle server if not localhost
+
+### Trickle Live Video Publisher
+
+Waits for an incoming video stream from MediaMTX and publishes it as a trickle stream under the same name.
+
+Requires ffmpeg and MediaMTX
+
+```
+make publisher
+```
+
+#### Options
+* `url`: URL of the trickle server if not localhost
+
+### Trickle Live Video Publisher and Subscriber
+
+
+Waits for an incoming video stream from MediaMTX and publishes it as a trickle stream under the same name. Also listens for new trickle streams via changefeed and sends any trickle streams that end with `-out` into MediaMTX with the same name.
+
+Requires ffmpeg, and MediaMTX and a trickle server with changefeeds enabled.
+
+```
+make pubsub-out
+```
+
+#### Options
+* `url`: URL of the trickle server if not localhost
+
+### Write segments to a file
+
+```
+make subscriber-example stream=<stream-name>
+```
+
+
+### MediaMTX
+
+To listen for incoming media streams, the trickle sample apps expect [MediaMTX](https://github.com/bluenviron/mediamtx) to be running alongside the apps.
+
+#### Configuring MediaMTX
+
+MediaMTX is a media server that is easy to set up and run. Download a pre-built [release](https://github.com/bluenviron/mediamtx/releases/tag/v1.9.3). Use the `mediamtx.yml` configuration file that is included in the http-trickle repo [here](https://github.com/j0sh/http-trickle/blob/main/mediamtx.yml).
+
+For completeness, here are the major differences in the `mediamtx.yml` configuration from the base:
+
+```diff
+diff --git b/mediamtx.yml a/mediamtx.yml
+index c3aed76..cf7c60c 100644
+--- b/mediamtx.yml
++++ a/mediamtx.yml
+@@ -376,8 +376,8 @@ webrtcAdditionalHosts: []
+ # ICE servers. Needed only when local listeners can't be reached by clients.
+ # STUN servers allows to obtain and share the public IP of the server.
+ # TURN/TURNS servers forces all traffic through them.
+-webrtcICEServers2: []
+-  # - url: stun:stun.l.google.com:19302
++webrtcICEServers2:
++  - url: stun:stun.l.google.com:19302
+   # if user is "AUTH_SECRET", then authentication is secret based.
+   # the secret must be inserted into the password field.
+   # username: ''
+@@ -643,7 +643,7 @@ pathDefaults:
+   #   a regular expression.
+   # * MTX_SOURCE_TYPE: source type
+   # * MTX_SOURCE_ID: source ID
+-  runOnReady:
++  runOnReady: curl -L -X POST http://localhost:2938/$MTX_PATH
+   # Restart the command if it exits.
+   runOnReadyRestart: no
+   # Command to run when the stream is not available anymore.
+```
+
+#### Go Live with MediaMTX
+
+Go live in the browser at `http://localhost:8889/<stream-name>/publish`
+
+Go live via RTMP at `rtmp://localhost:8889/<stream-name>`
+
+Trickle apps such as `publish` will automatically re-stream via trickle under the `<stream-name>` channel.
+
+Refer to the MediaMTX documentation for more details.
+
+Because trickle sample apps use ffmpeg RTMP to pull down streams from MediaMTX, the codecs used must match those what ffmpeg RTMP is capable of. Currently, this is limited to H.264 for video and G.722 for audio.

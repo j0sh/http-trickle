@@ -1,10 +1,11 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"trickle"
 )
@@ -18,20 +19,24 @@ func main() {
 	streamName := flag.String("stream", "", "Stream name (required)")
 	flag.Parse()
 	if *streamName == "" {
-		log.Fatalf("Error: stream name is required. Use -stream flag to specify the stream name.")
+		slog.Error("Error: stream name is required. Use -stream flag to specify the stream name.")
+		return
 	}
 
 	client := trickle.NewTrickleSubscriber(*baseURL + "/" + *streamName)
 
-	maxSegments := 75
-	for i := 0; i < maxSegments; i++ {
+	for {
 		// Read and process the first segment
 		resp, err := client.Read()
-		idx := trickle.GetSeq(resp)
 		if err != nil {
-			log.Fatal("Failed to read segment", idx, err)
-			continue
+			if errors.Is(err, trickle.EOS) {
+				slog.Info("End of stream signal")
+				return
+			}
+			slog.Error("Error reading subscription", "err", err)
+			return
 		}
+		idx := trickle.GetSeq(resp)
 		fname := fmt.Sprintf("out-read/%d.ts", idx)
 		file, err := os.OpenFile(fname, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 		if err != nil {
@@ -39,12 +44,12 @@ func main() {
 		}
 		n, err := io.Copy(file, resp.Body)
 		if err != nil {
-			log.Fatal("Failed to record segment", idx, err)
-			continue
+			slog.Error("Failed to record segment", "seq", idx, "err", err)
+			return
 		}
 		resp.Body.Close()
 		file.Close()
-		log.Println("--- End of Segment ", idx, fmt.Sprintf("(%d/%d)", i, maxSegments), "bytes", trickle.HumanBytes(n), " ---")
+		slog.Info("--- End of Segment ", "seq", idx, "bytes", trickle.HumanBytes(n))
 	}
-	log.Println("Completing", *streamName)
+	slog.Info("Completing", "stream", *streamName)
 }

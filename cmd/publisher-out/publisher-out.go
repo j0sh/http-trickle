@@ -158,7 +158,7 @@ func changefeedSubscribe() {
 				slog.Error("Failed to deserialize changefeed", "seq", trickle.GetSeq(res), "err", err)
 				continue
 			}
-			slog.Info("Changefeed received", "ch", ch)
+			slog.Info("Changefeed received", "seq", res.Header.Get("Lp-Trickle-Seq"), "ch", ch)
 			// Subscribe to new streams with the sufix "-out"
 			for _, stream := range ch.Added {
 				if strings.HasSuffix(stream, "-out") {

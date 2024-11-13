@@ -24,6 +24,7 @@ func main() {
 	trickleSrv := trickle.ConfigureServer(trickle.TrickleServerConfig{
 		BasePath:   EnsureSlash(*p),
 		Changefeed: true,
+		Autocreate: true,
 	})
 	changefeedSubscribe(trickleSrv)
 	log.Println("Server started at :2939")

@@ -27,12 +27,22 @@ var (
 
 type SegmentPoster struct {
 	tricklePublisher *trickle.TricklePublisher
+	ffmpegWriter     *os.File
 }
 
 func (sp *SegmentPoster) NewSegment(reader io.Reader) {
 	go func() {
 		// NB: This blocks! Very bad!
-		sp.tricklePublisher.Write(reader)
+		if err := sp.tricklePublisher.Write(reader); err != nil {
+			slog.Error("Error writing trickle", "err", err)
+			if err == trickle.StreamNotFoundErr {
+				slog.Error("Trickle stream not found")
+				sp.ffmpegWriter.Close()
+			}
+			if err != nil {
+				io.Copy(io.Discard, reader)
+			}
+		}
 	}()
 }
 
@@ -64,6 +74,7 @@ func runPublish(streamName string) {
 	go func() {
 		defer wg.Done()
 		sp := segmentPoster(streamName)
+		sp.ffmpegWriter = w
 		defer sp.tricklePublisher.Close()
 		(&trickle.MediaSegmenter{
 			ExtraFiles: []*os.File{r},

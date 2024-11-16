@@ -22,7 +22,15 @@ type SegmentPoster struct {
 func (sp *SegmentPoster) NewSegment(reader io.Reader) {
 	go func() {
 		// NB: This blocks! Very bad!
-		sp.tricklePublisher.Write(reader)
+		err := sp.tricklePublisher.Write(reader)
+		if err == trickle.StreamNotFoundErr {
+			slog.Info("no stream found, exiting")
+		}
+		if err != nil {
+			// discard anything that remains from the reader
+			io.Copy(io.Discard, reader)
+		} else {
+		}
 	}()
 }
 

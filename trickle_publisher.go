@@ -2,12 +2,15 @@ package trickle
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"sync"
 )
+
+var StreamNotFoundErr = errors.New("stream not found")
 
 // TricklePublisher represents a trickle streaming client
 type TricklePublisher struct {
@@ -22,6 +25,7 @@ type TricklePublisher struct {
 type pendingPost struct {
 	index  int
 	writer *io.PipeWriter
+	errCh  chan error
 }
 
 // NewTricklePublisher creates a new trickle stream client
@@ -48,6 +52,7 @@ func (c *TricklePublisher) preconnect() (*pendingPost, error) {
 
 	slog.Debug("Preconnecting", "url", url)
 
+	errCh := make(chan error, 1)
 	pr, pw := io.Pipe()
 	req, err := http.NewRequest("POST", url, pr)
 	if err != nil {
@@ -57,9 +62,7 @@ func (c *TricklePublisher) preconnect() (*pendingPost, error) {
 	req.Header.Set("Content-Type", c.contentType)
 
 	// Start the POST request in a background goroutine
-	// TODO error handling for these
 	go func() {
-		slog.Debug("Initiailzing http client", "idx", index)
 		// Createa new client to prevent connection reuse
 		client := http.Client{Transport: &http.Transport{
 			// ignore orch certs for now
@@ -68,25 +71,39 @@ func (c *TricklePublisher) preconnect() (*pendingPost, error) {
 		resp, err := client.Do(req)
 		if err != nil {
 			slog.Error("Failed to complete POST for segment", "url", url, "err", err)
+			errCh <- err
 			return
 		}
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			slog.Error("Error reading body", "url", url, "err", err)
+			errCh <- err
+			return
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			slog.Error("Failed POST segment", "url", url, "status_code", resp.StatusCode, "msg", string(body))
+			if resp.StatusCode == http.StatusNotFound {
+				errCh <- StreamNotFoundErr
+				return
+			}
+			// TODO figure out best behavior for 500-type errors
+			if resp.StatusCode < 500 {
+				errCh <- fmt.Errorf("Status code %d - %s", resp.StatusCode, string(body))
+				return
+			}
 		} else {
 			slog.Debug("Uploaded segment", "url", url)
 		}
+		errCh <- nil
 	}()
 
 	c.index += 1
 	return &pendingPost{
 		writer: pw,
 		index:  index,
+		errCh:  errCh,
 	}, nil
 }
 
@@ -128,6 +145,7 @@ func (c *TricklePublisher) Write(data io.Reader) error {
 	}
 	writer := pp.writer
 	index := pp.index
+	errCh := pp.errCh
 
 	// Set up the next connection
 	nextPost, err := c.preconnect()
@@ -140,16 +158,39 @@ func (c *TricklePublisher) Write(data io.Reader) error {
 	// Now unlock so the copy does not block
 	c.writeLock.Unlock()
 
+	// before writing, check for error from preconnects
+	select {
+	case err := <-errCh:
+		return err
+	default:
+		// no error, continue
+	}
+
 	// Start streaming data to the current POST request
-	n, err := io.Copy(writer, data)
-	if err != nil {
+	n, ioError := io.Copy(writer, data)
+
+	// if no io errors, close the writer
+	var closeErr error
+	if ioError == nil {
+		slog.Info("Completed writing", "idx", index, "totalBytes", humanBytes(n))
+
+		// Close the pipe writer to signal end of data for the current POST request
+		closeErr = writer.Close()
+	}
+
+	// check for errors after write, eg >=400 status codes
+	// these typically do not result in an io errors eg, with io.Copy
+	// and prioritize errors over this channel compared to io errors
+	// such as "read/write on closed pipe"
+	if err := <-errCh; err != nil {
+		return err
+	}
+
+	if ioError != nil {
 		return fmt.Errorf("error streaming data to segment %d: %w", index, err)
 	}
 
-	slog.Debug("Completed writing", "idx", index, "totalBytes", humanBytes(n))
-
-	// Close the pipe writer to signal end of data for the current POST request
-	if err := writer.Close(); err != nil {
+	if closeErr != nil {
 		return fmt.Errorf("error closing writer for segment %d: %w", index, err)
 	}
 

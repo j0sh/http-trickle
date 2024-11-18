@@ -95,7 +95,7 @@ func openNonBlockingWithRetry(name string, timeout time.Duration, completed <-ch
 
 	// setFd sets the given file descriptor in the fdSet
 	setFd := func(fd int, fdSet *syscall.FdSet) {
-		idx := fd/64
+		idx := fd / 64
 		if idx >= len(fdSet.Bits) {
 			// only happens under very weird conditions
 			return
@@ -105,7 +105,7 @@ func openNonBlockingWithRetry(name string, timeout time.Duration, completed <-ch
 
 	// isFdSet checks if the given file descriptor is set in the fdSet
 	isFdSet := func(fd int, fdSet *syscall.FdSet) bool {
-		idx := fd/64
+		idx := fd / 64
 		if idx >= len(fdSet.Bits) {
 			// only happens under very weird conditions
 			return false
@@ -194,6 +194,9 @@ func processSegments(segmentHandler SegmentHandler, outFilePattern string, compl
 	pipeNum := 0
 	createNamedPipe(fmt.Sprintf(outFilePattern, pipeNum))
 
+	// shared buffer; set to empty and segment reader will initialize
+	buf := []byte{}
+
 	for {
 		pipeName := fmt.Sprintf(outFilePattern, pipeNum)
 		nextPipeName := fmt.Sprintf(outFilePattern, pipeNum+1)
@@ -216,7 +219,7 @@ func processSegments(segmentHandler SegmentHandler, outFilePattern string, compl
 		mu.Unlock()
 
 		// Handle the reading process
-		readSegment(segmentHandler, file, pipeName)
+		buf = readSegment(segmentHandler, file, pipeName, buf)
 
 		// Increment to the next pipe
 		pipeNum++
@@ -236,14 +239,16 @@ func processSegments(segmentHandler SegmentHandler, outFilePattern string, compl
 	}
 }
 
-func readSegment(segmentHandler SegmentHandler, file *os.File, pipeName string) {
+func readSegment(segmentHandler SegmentHandler, file *os.File, pipeName string, buf []byte) []byte {
 	defer file.Close()
 
 	reader := bufio.NewReader(file)
 	firstByteRead := false
 	totalBytesRead := int64(0)
 
-	buf := make([]byte, 32*1024)
+	if buf == nil || len(buf) <= 0 {
+		buf = make([]byte, 32*1024)
+	}
 
 	// TODO should be explicitly buffered for better management
 	interfaceReader, interfaceWriter := io.Pipe()
@@ -280,6 +285,7 @@ func readSegment(segmentHandler SegmentHandler, file *os.File, pipeName string) 
 			break
 		}
 	}
+	return buf
 }
 
 func randomString() string {

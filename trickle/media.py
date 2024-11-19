@@ -54,7 +54,6 @@ async def subscribe(subscribe_url, out_pipe):
                 await segment.close()
             else:
                 # stream is complete
-                logging.info("closing out_pipe")
                 out_pipe.close()
                 break
 
@@ -118,7 +117,7 @@ async def parse_jpegs(in_pipe, image_callback):
             chunk = await in_pipe.read(chunk_size)
             if not chunk:
                 break
-            parser.feed(chunk)
+            await parser.feed(chunk)
 
 def feed_ffmpeg(ffmpeg_fd, image_generator):
     while True:
@@ -135,6 +134,7 @@ async def run_publish(publish_url: str, image_generator):
 
         loop = asyncio.get_running_loop()
         async def callback(pipe_file, pipe_name):
+            # trickle publish a segment with the contents of `pipe_file`
             async with await publisher.next() as segment:
                 # convert pipe_fd into an asyncio friendly StreamReader
                 reader = asyncio.StreamReader()
@@ -172,6 +172,7 @@ async def run_publish(publish_url: str, image_generator):
         ffmpeg_feeder = threading.Thread(target=feed_ffmpeg, args=(ffmpeg_write_fd, image_generator))
         segment_thread.start()
         ffmpeg_feeder.start()
+        logging.debug("run_publish: ffmpeg feeder and segmenter threads started")
 
         def joins():
             segment_thread.join()

@@ -1,6 +1,4 @@
-import io
-import os
-import sys
+import asyncio
 import logging
 
 class JPEGStreamParser:
@@ -24,7 +22,7 @@ class JPEGStreamParser:
         logging.info("Closing jpeg parser")
         self.callback(None)
 
-    def feed(self, data):
+    async def feed(self, data):
         """
         Feed incoming data into the parser.
         :param data: Incoming data bytes.
@@ -51,7 +49,8 @@ class JPEGStreamParser:
 
             # Extract the JPEG and call the callback
             jpeg_data = self.buffer[:end_idx + 2]
-            self.callback(jpeg_data)
+            # Callback may be a blocking function (like Queue.get) so run it in a thread
+            await asyncio.to_thread(self.callback, jpeg_data)
 
             # Remove the processed JPEG from the buffer
             self.buffer = self.buffer[end_idx + 2:]

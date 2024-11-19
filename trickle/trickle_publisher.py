@@ -26,7 +26,7 @@ class TricklePublisher:
     async def preconnect(self):
         """Preconnect to the server by initiating a POST request to the current index."""
         url = self.streamIdx()
-        logging.info(f"Preconnecting to URL: {url}")
+        logging.info(f"Trickle pub preconnecting to URL: {url}")
         try:
             # we will be incrementally writing data into this queue
             queue = asyncio.Queue()
@@ -46,9 +46,9 @@ class TricklePublisher:
             # TODO propagate errors?
             if resp.status != 200:
                 body = await resp.text()
-                logging.error(f"Trickle POST failed {self.streamIdx()}, status code: {resp.status}, msg: {body}")
+                logging.error(f"Trickle pub failed {self.streamIdx()}, status code: {resp.status}, msg: {body}")
         except Exception as e:
-            logging.error(f"Trickle POST  exception {self.streamIdx()} - {e}")
+            logging.error(f"Trickle pub  exception {self.streamIdx()} - {e}")
         return None
 
     async def _stream_data(self, queue):
@@ -63,7 +63,7 @@ class TricklePublisher:
         """Start or retrieve a pending POST request and preconnect for the next segment."""
         async with self.lock:
             if self.next_writer is None:
-                logging.info(f"No pending connection, preconnecting {self.streamIdx()}...")
+                logging.info(f"Trickle pub No pending connection, preconnecting {self.streamIdx()}...")
                 self.next_writer = await self.preconnect()
 
             writer = self.next_writer
@@ -76,7 +76,7 @@ class TricklePublisher:
 
     async def _preconnect_next_segment(self):
         """Preconnect to the next POST in the background."""
-        logging.info(f"Setting up next connection for {self.streamIdx()}")
+        logging.info(f"Trickle pub Setting up next connection for {self.streamIdx()}")
         async with self.lock:
             if self.next_writer is not None:
                 return
@@ -87,7 +87,7 @@ class TricklePublisher:
 
     async def close(self):
         """Close the session when done."""
-        logging.info(f"Closing {self.url}")
+        logging.info(f"Trickle pub Closing {self.url}")
         if self.next_writer:
             s = SegmentWriter(self.next_writer)
             await s.close()

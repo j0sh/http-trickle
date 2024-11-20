@@ -40,7 +40,8 @@ class TricklePublisher:
         try:
             resp = await self.session.post(
                 url,
-                headers={'Connection': 'close', 'Content-Type': self.mime_type},
+                headers={'Content-Type': self.mime_type},
+                #headers={'Connection': 'close', 'Content-Type': self.mime_type},
                 data=self._stream_data(queue)
             )
             # TODO propagate errors?
@@ -58,6 +59,17 @@ class TricklePublisher:
             if chunk is None:  # Stop signal
                 break
             yield chunk
+
+    async def create(self):
+        resp = await self.session.post(
+                self.url,
+                headers={'Expect-Content': self.mime_type},
+                data={})
+        if resp.status != 200:
+            body = await resp.text()
+            logging.error(f"Trickle pub failed to create: {resp.status}, msg: {body}")
+            raise ValueError("non-200 return code")
+        return None
 
     async def next(self):
         """Start or retrieve a pending POST request and preconnect for the next segment."""

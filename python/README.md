@@ -7,12 +7,18 @@ Publish and subscribe clients are are in `/trickle`
 
 ### main.sh
 Subscribes to a video channel, converts the video into images, re-encodes the images again
+
 Shell script assumes the publish url is subscribe url with an `-out` prefix
+
 Requires ffmpeg
+```
 ./main.sh <subscribe-url>
+```
 
 ### image.sh
+
 Publish an image at 30fps and subscribes back to the published stream
+
 Assumes the publish channel is `http://localhost:2939/image-test`
 ```
 ./image.sh <path-to-image>
@@ -26,6 +32,7 @@ python read2pipe.py --url=<url> > foo.ts
 
 ### echo
 Subscribes to a channel and re-publishes it as-is.
+
 The shell script assumes the publish URL is the subscribe URL with a `-out` prefix.
 ```
 ./echo.sh <subscribe-url>
@@ -39,6 +46,7 @@ python text-publisher.py --stream <channel name> --local <path to text file>
 
 ### segment-writer
 Subscribes to a channel and writes each segment to a file.
+
 The file path is hardcoded to `read-%d.ts` at the moment.
 ```
 python segment-writer.py --stream=<subscribe-url>

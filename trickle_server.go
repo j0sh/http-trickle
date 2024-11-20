@@ -99,6 +99,7 @@ func ConfigureServer(config TrickleServerConfig) *Server {
 		basePath = config.BasePath
 	)
 
+	mux.HandleFunc("POST "+basePath+"{streamName}", streamManager.handleCreate)
 	mux.HandleFunc("GET "+basePath+"{streamName}/{idx}", streamManager.handleGet)
 	mux.HandleFunc("POST "+basePath+"{streamName}/{idx}", streamManager.handlePost)
 	mux.HandleFunc("DELETE "+basePath+"{streamName}", streamManager.handleDelete)
@@ -199,6 +200,14 @@ func (sm *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (sm *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
+	stream := sm.getOrCreateStream(r.PathValue("streamName"), r.Header.Get("Expect-Content"), false)
+	if stream == nil {
+		http.Error(w, "Stream not found", http.StatusNotFound)
+		return
+	}
+}
+
 func (sm *Server) handlePost(w http.ResponseWriter, r *http.Request) {
 	stream := sm.getOrCreateStream(r.PathValue("streamName"), r.Header.Get("Content-Type"), false)
 	if stream == nil {
@@ -266,7 +275,6 @@ func (s *Stream) handlePost(w http.ResponseWriter, r *http.Request, idx int) {
 	if exists {
 		slog.Warn("Overwriting existing entry", "idx", idx)
 		// Overwrite anything that exists now. TODO figure out a safer behavior?
-		http.Error(w, "Entry already exists for this index", http.StatusBadRequest)
 		return
 	}
 

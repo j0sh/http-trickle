@@ -24,7 +24,7 @@ async def write_chunks_to_file(input_stream, index, chunk_size=1024):
 
 
     # Create the filename using the index
-    output_file_path = f"/Users/josh/livepeer/trickle/733d914822373475d17c33385f23eb09/python-out/read-{index}.ts"
+    output_file_path = f"read-{index}.ts"
 
     # Open the output file asynchronously and write chunks to it
     async with aiofiles.open(output_file_path, 'wb') as output_file:
@@ -64,7 +64,7 @@ if __name__ == "__main__":
         level=logging.INFO,
         datefmt='%Y-%m-%d %H:%M:%S')
 
-    parser = argparse.ArgumentParser(description="Infer process to run the AI pipeline")
+    parser = argparse.ArgumentParser(description="Write each segment to a file named 'read-%d.ts'")
     parser.add_argument(
         "--stream", type=str, required=True, help="stream name"
     )

@@ -11,6 +11,8 @@ from typing import List
 
 import trickle
 
+# main type of runner for the demo that calls ffmpeg and friends
+
 async def main(subscribe_url: str, publish_url: str, params: dict):
     logger = logging.getLogger(__name__)
 

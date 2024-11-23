@@ -127,6 +127,27 @@ func (c *TricklePublisher) Close() error {
 	return nil
 }
 
+func (c *TricklePublisher) Create() error {
+	req, err := http.NewRequest("POST", c.baseURL, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := (&http.Client{Transport: &http.Transport{
+		// ignore orch certs for now
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Failed to create stream: %v - %s", resp.Status, string(body))
+	}
+	return nil
+
+}
+
 // Write sends data to the current segment, sets up the next segment concurrently, and blocks until completion
 func (c *TricklePublisher) Write(data io.Reader) error {
 

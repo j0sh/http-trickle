@@ -55,6 +55,12 @@ func IsEOS(resp *http.Response) bool {
 	return resp.Header.Get("Lp-Trickle-Closed") != ""
 }
 
+func (c *TrickleSubscriber) ResetSeq() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.idx = -1
+}
+
 func (c *TrickleSubscriber) connect(ctx context.Context) (*http.Response, error) {
 	url := fmt.Sprintf("%s/%d", c.url, c.idx)
 	slog.Debug("preconnecting", "url", url)

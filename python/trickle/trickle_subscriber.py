@@ -22,7 +22,7 @@ class TrickleSubscriber:
             if resp.status != 200:
                 body = await resp.text()
                 resp.release()
-                logging.error(f"Trickle sub Failed GET segment, status code: {resp.status}, msg: {body}")
+                logging.error(f"Trickle sub Failed GET {url}, status code: {resp.status}, msg: {body}")
                 self.errored = True
                 return None
 

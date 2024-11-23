@@ -11,23 +11,25 @@ import (
 )
 
 func main() {
+	p := flag.String("path", "/", "URL to publish streams to")
+	addr := flag.String("addr", ":2939", "Address to bind to")
+	flag.Parse()
+
 	srv := &http.Server{
 		// say max segment size is 20 secs
 		// we can allow 2 * 20 secs given preconnects
-		Addr:         ":2939",
+		Addr:         *addr,
 		ReadTimeout:  40 * time.Second,
 		WriteTimeout: 45 * time.Second,
 	}
 
-	p := flag.String("path", "/", "URL to publish streams to")
-	flag.Parse()
 	trickleSrv := trickle.ConfigureServer(trickle.TrickleServerConfig{
 		BasePath:   EnsureSlash(*p),
 		Changefeed: true,
 		Autocreate: true,
 	})
 	changefeedSubscribe(trickleSrv)
-	log.Println("Server started at :2939")
+	log.Println("Server started at " + *addr)
 	log.Fatal(srv.ListenAndServe())
 }
 

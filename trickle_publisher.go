@@ -21,6 +21,16 @@ type TricklePublisher struct {
 	contentType string
 }
 
+// HTTPError gets returned with a >=400 status code (non-400)
+type HTTPError struct {
+	Code int
+	Body string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("Status code %d - %s", e.Code, e.Body)
+}
+
 // pendingPost represents a pre-initialized POST request waiting for data
 type pendingPost struct {
 	index  int
@@ -88,9 +98,8 @@ func (c *TricklePublisher) preconnect() (*pendingPost, error) {
 				errCh <- StreamNotFoundErr
 				return
 			}
-			// TODO figure out best behavior for 500-type errors
-			if resp.StatusCode < 500 {
-				errCh <- fmt.Errorf("Status code %d - %s", resp.StatusCode, string(body))
+			if resp.StatusCode >= 400 {
+				errCh <- &HTTPError{Code: resp.StatusCode, Body: string(body)}
 				return
 			}
 		} else {
@@ -193,15 +202,15 @@ func (c *TricklePublisher) Write(data io.Reader) error {
 	// if no io errors, close the writer
 	var closeErr error
 	if ioError == nil {
-		slog.Info("Completed writing", "idx", index, "totalBytes", humanBytes(n))
+		slog.Debug("Completed writing", "idx", index, "totalBytes", humanBytes(n))
 
 		// Close the pipe writer to signal end of data for the current POST request
 		closeErr = writer.Close()
 	}
 
 	// check for errors after write, eg >=400 status codes
-	// these typically do not result in an io errors eg, with io.Copy
-	// and prioritize errors over this channel compared to io errors
+	// these typically do not result in io errors eg, with io.Copy
+	// also prioritize errors over this channel compared to io errors
 	// such as "read/write on closed pipe"
 	if err := <-errCh; err != nil {
 		return err

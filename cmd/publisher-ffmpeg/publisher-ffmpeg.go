@@ -14,11 +14,7 @@ import (
 	"trickle"
 )
 
-// Listens to new streams from MediaMTX and publishes
-// to trickle HTTP server under the same name
-// then concurrently subscribes and writes to an outfile
-
-// TODO correctly handle shutdown - shut down publisher and ffmpeg
+// publishes a stream taken from stdin
 
 var (
 	baseURL    *string

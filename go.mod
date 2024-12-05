@@ -1,6 +1,6 @@
 module trickle
 
-go 1.22.1
+go 1.23.0
 
 require github.com/livepeer/lpms v0.0.0-20240909171057-fe5aff1fa6a2
 

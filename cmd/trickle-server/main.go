@@ -30,7 +30,10 @@ func main() {
 	})
 	changefeedSubscribe(trickleSrv)
 	log.Println("Server started at " + *addr)
-	log.Fatal(srv.ListenAndServe())
+	stop := trickleSrv.Start()
+	err := srv.ListenAndServe()
+	stop()
+	log.Fatal(err)
 }
 
 func changefeedSubscribe(srv *trickle.Server) {

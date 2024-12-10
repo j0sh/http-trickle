@@ -194,9 +194,6 @@ func processSegments(segmentHandler SegmentHandler, outFilePattern string, compl
 	pipeNum := 0
 	createNamedPipe(fmt.Sprintf(outFilePattern, pipeNum))
 
-	// shared buffer; set to empty and segment reader will initialize
-	buf := []byte{}
-
 	for {
 		pipeName := fmt.Sprintf(outFilePattern, pipeNum)
 		nextPipeName := fmt.Sprintf(outFilePattern, pipeNum+1)
@@ -219,7 +216,7 @@ func processSegments(segmentHandler SegmentHandler, outFilePattern string, compl
 		mu.Unlock()
 
 		// Handle the reading process
-		buf = readSegment(segmentHandler, file, pipeName, buf)
+		readSegment(segmentHandler, file, pipeName)
 
 		// Increment to the next pipe
 		pipeNum++
@@ -239,53 +236,14 @@ func processSegments(segmentHandler SegmentHandler, outFilePattern string, compl
 	}
 }
 
-func readSegment(segmentHandler SegmentHandler, file *os.File, pipeName string, buf []byte) []byte {
+func readSegment(segmentHandler SegmentHandler, file *os.File, pipeName string) {
 	defer file.Close()
-
 	reader := bufio.NewReader(file)
-	firstByteRead := false
-	totalBytesRead := int64(0)
-
-	if buf == nil || len(buf) <= 0 {
-		buf = make([]byte, 32*1024)
-	}
-
-	// TODO should be explicitly buffered for better management
-	interfaceReader, interfaceWriter := io.Pipe()
-	defer interfaceWriter.Close()
-	segmentHandler(interfaceReader)
-
-	for {
-		n, err := reader.Read(buf)
-		if n > 0 {
-			if !firstByteRead {
-				slog.Debug("First byte read", "pipeName", pipeName)
-				firstByteRead = true
-
-			}
-			totalBytesRead += int64(n)
-			if _, err := interfaceWriter.Write(buf[:n]); err != nil {
-				if err != io.EOF {
-					slog.Error("Error writing", "pipeName", pipeName, "err", err)
-				}
-			}
-		}
-		if n == len(buf) && n < 1024*1024 {
-			newLen := int(float64(len(buf)) * 1.5)
-			slog.Info("Max buf hit, increasing", "oldSize", HumanBytes(int64(len(buf))), "newSize", HumanBytes(int64(newLen)))
-			buf = make([]byte, newLen)
-		}
-
-		if err != nil {
-			if err.Error() == "EOF" {
-				slog.Debug("Last byte read", "pipeName", pipeName, "totalRead", HumanBytes(totalBytesRead))
-			} else {
-				slog.Error("Error reading", "pipeName", pipeName, "err", err)
-			}
-			break
-		}
-	}
-	return buf
+	writer := NewTrickleWriter()
+	segmentHandler(writer.MakeReader())
+	io.Copy(writer, reader)
+	writer.Close()
+	return
 }
 
 func randomString() string {

@@ -1,16 +1,13 @@
 package trickle
 
 import (
-	"io"
 	"sync"
 )
 
-type SegmentHandler func(reader io.Reader)
+type SegmentHandler func(reader CloneableReader)
 
-func NoopReader(reader io.Reader) {
-	go func() {
-		io.Copy(io.Discard, reader)
-	}()
+func NoopReader(reader CloneableReader) {
+	// don't have to do anything here
 }
 
 type SwitchableSegmentReader struct {
@@ -30,7 +27,7 @@ func (sr *SwitchableSegmentReader) SwitchReader(newReader SegmentHandler) {
 	sr.reader = newReader
 }
 
-func (sr *SwitchableSegmentReader) Read(reader io.Reader) {
+func (sr *SwitchableSegmentReader) Read(reader CloneableReader) {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
 	sr.reader(reader)

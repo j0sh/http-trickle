@@ -60,7 +60,7 @@ The server currently has a special changefeed channel named `_changes` which wil
 
 ## Sample Programs
 
-The base trickle tools require golang 1.22+
+The base trickle tools require golang 1.23+
 
 ### Trickle Server
 

@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -19,19 +18,12 @@ type SegmentPoster struct {
 	tricklePublisher *trickle.TricklePublisher
 }
 
-func (sp *SegmentPoster) NewSegment(reader io.Reader) {
+func (sp *SegmentPoster) NewSegment(reader trickle.CloneableReader) {
 	go func() {
-		// NB: This blocks! Very bad!
 		err := sp.tricklePublisher.Write(reader)
 		if err == trickle.StreamNotFoundErr {
 			slog.Info("no stream found, exiting")
 		}
-		if err != nil {
-			// discard anything that remains from the reader
-			io.Copy(io.Discard, reader)
-		} else {
-		}
-	}()
 }
 
 func segmentPoster(streamName string) *SegmentPoster {

@@ -428,7 +428,7 @@ func (s *Stream) getForWrite(idx int) (*Segment, bool) {
 	return segment, false
 }
 
-func (s *Stream) getForRead(idx int) (*Segment, bool) {
+func (s *Stream) getForRead(idx int) (*Segment, int, bool) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 	exists := func(seg *Segment, i int) bool {
@@ -446,7 +446,7 @@ func (s *Stream) getForRead(idx int) (*Segment, bool) {
 		slog.Info("GET precreating", "stream", s.name, "idx", idx, "latest", s.latestWrite)
 	}
 	slog.Info("GET segment", "stream", s.name, "idx", idx, "latest", s.latestWrite, "exists?", exists(segment, idx))
-	return segment, exists(segment, idx)
+	return segment, s.latestWrite, exists(segment, idx)
 }
 
 func (sm *Server) handleGet(w http.ResponseWriter, r *http.Request) {
@@ -464,9 +464,13 @@ func (sm *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Stream) handleGet(w http.ResponseWriter, r *http.Request, idx int) {
-	segment, exists := s.getForRead(idx)
+	segment, latestSeq, exists := s.getForRead(idx)
 	if !exists {
-		http.Error(w, "Entry not found", http.StatusNotFound)
+		// Special status to indicate "stream exists but segment doesn't"
+		w.Header().Set("Lp-Trickle-Latest", strconv.Itoa(latestSeq))
+		w.Header().Set("Lp-Trickle-Seq", strconv.Itoa(idx))
+		w.WriteHeader(470)
+		w.Write([]byte("Entry not found"))
 		return
 	}
 
@@ -494,6 +498,9 @@ func (s *Stream) handleGet(w http.ResponseWriter, r *http.Request, idx int) {
 			data, eof := subscriber.readData()
 			if len(data) > 0 {
 				if totalWrites <= 0 {
+					if segment.idx != latestSeq {
+						w.Header().Set("Lp-Trickle-Latest", strconv.Itoa(latestSeq))
+					}
 					w.Header().Set("Lp-Trickle-Seq", strconv.Itoa(segment.idx))
 					w.Header().Set("Content-Type", s.mimeType)
 				}
@@ -510,10 +517,16 @@ func (s *Stream) handleGet(w http.ResponseWriter, r *http.Request, idx int) {
 					// check if the channel was closed; sometimes we drop / skip a segment
 					s.mutex.RLock()
 					closed := s.closed
+					latestSeq := s.latestWrite
 					s.mutex.RUnlock()
 					w.Header().Set("Lp-Trickle-Seq", strconv.Itoa(segment.idx))
 					if closed {
 						w.Header().Set("Lp-Trickle-Closed", "terminated")
+					} else {
+						// if the segment was dropped, its probably slow
+						// send over latest seq so the client can grab leading edge
+						w.Header().Set("Lp-Trickle-Latest", strconv.Itoa(latestSeq))
+						w.WriteHeader(470)
 					}
 				}
 				return totalWrites, nil

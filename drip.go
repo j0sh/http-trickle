@@ -89,8 +89,11 @@ func (tw *TrickleWriter) MakeReader() CloneableReader {
 func (tr *TrickleReader) Read(p []byte) (int, error) {
 	data, eof := tr.source.readData(tr.readPos)
 	toRead := len(p)
-	if len(data) < toRead {
+	if len(data) <= toRead {
 		toRead = len(data)
+	} else {
+		// there is more data to read
+		eof = false
 	}
 
 	copy(p, data[:toRead])

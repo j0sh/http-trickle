@@ -26,7 +26,7 @@ type SegmentPoster struct {
 	ffmpegWriter     *os.File
 }
 
-func (sp *SegmentPoster) NewSegment(reader io.Reader) {
+func (sp *SegmentPoster) NewSegment(reader trickle.CloneableReader) {
 	go func() {
 		// NB: This blocks! Very bad!
 		if err := sp.tricklePublisher.Write(reader); err != nil {

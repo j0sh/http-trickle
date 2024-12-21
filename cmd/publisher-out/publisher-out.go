@@ -27,7 +27,7 @@ type SegmentPoster struct {
 	tricklePublisher *trickle.TricklePublisher
 }
 
-func (sp *SegmentPoster) NewSegment(reader io.Reader) {
+func (sp *SegmentPoster) NewSegment(reader trickle.CloneableReader) {
 	go func() {
 		// NB: This blocks! Very bad!
 		sp.tricklePublisher.Write(reader)

@@ -40,6 +40,7 @@ func (sp *SegmentPoster) NewSegment(reader trickle.CloneableReader) {
 			currentSeq := sp.checker.GetCount()
 			if seq != currentSeq {
 				slog.Info("Next segment has already started; skipping this one seq=%d currentSeq=%d", seq, currentSeq)
+				writer.Close()
 				return
 			}
 			n, err := writer.Write(reader)
@@ -50,6 +51,7 @@ func (sp *SegmentPoster) NewSegment(reader trickle.CloneableReader) {
 				// lets retry
 				if n > 0 {
 					slog.Info("Error publishing segment; dropping remainder", "wrote", n, "err", err)
+					writer.Close()
 					return
 				}
 				reader = reader.Clone()

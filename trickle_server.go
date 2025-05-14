@@ -49,13 +49,13 @@ type Server struct {
 }
 
 type Stream struct {
-	mutex       sync.RWMutex
-	segments    []*Segment
-	latestWrite int
-	name        string
-	mimeType    string
-	writeTime   time.Time
-	closed      bool
+	mutex     sync.RWMutex
+	segments  []*Segment
+	name      string
+	mimeType  string
+	nextWrite int
+	writeTime time.Time
+	closed    bool
 }
 
 type Segment struct {
@@ -237,7 +237,7 @@ func (sm *Server) closeStream(streamName string) error {
 	sm.mutex.Lock()
 	delete(sm.streams, streamName)
 	sm.mutex.Unlock()
-	slog.Info("Deleted channel", "channel", streamName)
+	slog.Info("Deleted stream", "streamName", streamName)
 
 	// update changefeed if needed
 	if !sm.config.Changefeed {
@@ -378,6 +378,12 @@ func (s *Stream) handlePost(w http.ResponseWriter, r *http.Request, idx int) {
 	for {
 		n, err := reader.Read(buf)
 		if n > 0 {
+			if totalRead == 0 {
+				s.mutex.Lock()
+				s.nextWrite = idx + 1
+				s.writeTime = time.Now()
+				s.mutex.Unlock()
+			}
 			segment.writeData(buf[:n])
 			if n == len(buf) && n < 1024*1024 { // 1 MB max
 				// filled the buffer, so double it for efficiency
@@ -408,14 +414,9 @@ func (s *Stream) getForWrite(idx int) (*Segment, bool) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	if idx == -1 {
-		idx = s.latestWrite
-		// TODO figure out how to better handle restarts while maintaining ordering
-		/* } else if idx > s.latestWrite { */
-	} else {
-		s.latestWrite = idx
+		idx = s.nextWrite
 	}
-	s.writeTime = time.Now()
-	slog.Info("POST segment", "stream", s.name, "idx", idx, "latest", s.latestWrite)
+	slog.Info("POST segment", "stream", s.name, "idx", idx, "next", s.nextWrite)
 	segmentPos := idx % maxSegmentsPerStream
 	if segment := s.segments[segmentPos]; segment != nil {
 		if idx == segment.idx {
@@ -437,18 +438,26 @@ func (s *Stream) getForRead(idx int) (*Segment, int, bool) {
 		return seg != nil && seg.idx == i
 	}
 	if idx == -1 {
-		idx = s.latestWrite
+		// -1 == next write
+		idx = s.nextWrite
+	} else if idx == -2 {
+		// -2 == current write
+		if s.nextWrite > 0 {
+			idx = s.nextWrite - 1
+		} else {
+			idx = 0
+		}
 	}
 	segmentPos := idx % maxSegmentsPerStream
 	segment := s.segments[segmentPos]
-	if !exists(segment, idx) && (idx == s.latestWrite+1 || (idx == 0 && s.latestWrite == 0)) {
+	if !exists(segment, idx) && (idx == s.nextWrite || (s.nextWrite == 0 && idx == 1)) {
 		// read request is just a little bit ahead of write head
 		segment = newSegment(idx)
 		s.segments[segmentPos] = segment
-		slog.Info("GET precreating", "stream", s.name, "idx", idx, "latest", s.latestWrite)
+		slog.Info("GET precreating", "stream", s.name, "idx", idx, "next", s.nextWrite)
 	}
-	slog.Info("GET segment", "stream", s.name, "idx", idx, "latest", s.latestWrite, "exists?", exists(segment, idx))
-	return segment, s.latestWrite, exists(segment, idx)
+	slog.Info("GET segment", "stream", s.name, "idx", idx, "next", s.nextWrite, "exists?", exists(segment, idx))
+	return segment, s.nextWrite, exists(segment, idx)
 }
 
 func (sm *Server) handleGet(w http.ResponseWriter, r *http.Request) {
@@ -519,14 +528,15 @@ func (s *Stream) handleGet(w http.ResponseWriter, r *http.Request, idx int) {
 					// check if the channel was closed; sometimes we drop / skip a segment
 					s.mutex.RLock()
 					closed := s.closed
-					latestSeq := s.latestWrite
+					latestSeq := s.nextWrite
 					s.mutex.RUnlock()
 					w.Header().Set("Lp-Trickle-Seq", strconv.Itoa(segment.idx))
 					if closed {
 						w.Header().Set("Lp-Trickle-Closed", "terminated")
 					} else {
-						// if the segment was dropped, its probably slow
-						// send over latest seq so the client can grab leading edge
+						// usually happens if a publisher cancels a pending segment right before closing the channel
+						// other times, the subscriber is slow and the segment falls out of the live window
+						// send over latest seq so slow clients can grab leading edge
 						w.Header().Set("Lp-Trickle-Latest", strconv.Itoa(latestSeq))
 						w.WriteHeader(470)
 					}

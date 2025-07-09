@@ -26,31 +26,36 @@ class TricklePublisher:
     async def preconnect(self):
         """Preconnect to the server by initiating a POST request to the current index."""
         url = self.streamIdx()
-        logging.info(f"Trickle pub preconnecting to URL: {url}")
+        logging.debug(f"Preconnecting to URL: {url}")
         try:
             # we will be incrementally writing data into this queue
             queue = asyncio.Queue()
             asyncio.create_task(self._run_post(url, queue))
             return queue
         except aiohttp.ClientError as e:
-            logging.error(f"Failed to complete POST for {self.streamIdx()}: {e}")
+            logging.error(f"Failed to complete POST for {url}: {e}")
             return None
 
     async def _run_post(self, url, queue):
         try:
             resp = await self.session.post(
                 url,
-                headers={'Content-Type': self.mime_type},
-                #headers={'Connection': 'close', 'Content-Type': self.mime_type},
+                headers={'Connection': 'close', 'Content-Type': self.mime_type},
                 data=self._stream_data(queue)
             )
             # TODO propagate errors?
             if resp.status != 200:
                 body = await resp.text()
-                logging.error(f"Trickle pub failed {self.streamIdx()}, status code: {resp.status}, msg: {body}")
+                logging.error(f"Trickle POST failed {self.streamIdx()}, status code: {resp.status}, msg: {body}")
         except Exception as e:
-            logging.error(f"Trickle pub  exception {self.streamIdx()} - {e}")
+            logging.error(f"Trickle POST  exception {self.streamIdx()} - {e}")
         return None
+
+    async def _run_delete(self):
+        try:
+            await self.session.delete(self.url)
+        except Exception:
+            logging.error(f"Error sending trickle delete request", exc_info=True)
 
     async def _stream_data(self, queue):
         """Stream data from the queue for the POST request."""
@@ -78,17 +83,17 @@ class TricklePublisher:
                 logging.info(f"Trickle pub No pending connection, preconnecting {self.streamIdx()}...")
                 self.next_writer = await self.preconnect()
 
+            seq = self.idx
             writer = self.next_writer
             self.next_writer = None
 
             # Set up the next POST in the background
             asyncio.create_task(self._preconnect_next_segment())
 
-        return SegmentWriter(writer)
+        return SegmentWriter(writer, seq)
 
     async def _preconnect_next_segment(self):
         """Preconnect to the next POST in the background."""
-        logging.info(f"Trickle pub Setting up next connection for {self.streamIdx()}")
         async with self.lock:
             if self.next_writer is not None:
                 return
@@ -99,16 +104,25 @@ class TricklePublisher:
 
     async def close(self):
         """Close the session when done."""
-        logging.info(f"Trickle pub Closing {self.url}")
-        if self.next_writer:
-            s = SegmentWriter(self.next_writer)
-            await s.close()
-        await self.session.delete(self.url)
-        await self.session.close()
+        logging.info(f"Closing {self.url}")
+        async with self.lock:
+            if self.next_writer:
+                s = SegmentWriter(self.next_writer)
+                await s.close()
+                self.next_writer = None
+            if self.session:
+                try:
+                    await self._run_delete()
+                    await self.session.close()
+                except Exception:
+                    logging.error(f"Error closing trickle subscriber", exc_info=True)
+                finally:
+                    self.session = None
 
 class SegmentWriter:
-    def __init__(self, queue: asyncio.Queue):
+    def __init__(self, queue: asyncio.Queue, seq: int = -99):
         self.queue = queue
+        self._seq = seq
 
     async def write(self, data):
         """Write data to the current segment."""
@@ -125,3 +139,7 @@ class SegmentWriter:
     async def __aexit__(self, exc_type, exc_value, traceback):
         """Exit context manager and close the connection."""
         await self.close()
+
+    def seq(self) -> int:
+        """Return the sequence number of this segment."""
+        return self._seq

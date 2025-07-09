@@ -2,7 +2,6 @@ package trickle
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -26,12 +25,17 @@ func (e *SequenceNonexistent) Error() string {
 
 const preconnectRefreshTimeout = 20 * time.Second
 
+var preconnectTimeoutErr = errors.New("preconnect timed out")
+
 // TrickleSubscriber represents a trickle streaming reader that always fetches from index -1
 type TrickleSubscriber struct {
+	client     *http.Client
 	url        string
-	mu         sync.Mutex     // Mutex to manage concurrent access
-	pendingGet *http.Response // Pre-initialized GET request
-	idx        int            // Segment index to request
+	mu         sync.Mutex      // Mutex to manage concurrent access
+	pendingGet *http.Response  // Pre-initialized GET request
+	ctx        context.Context // Parent context to use for pending GETs. This is bad
+	cancelCtx  func()          // cancel the pending GET
+	idx        int             // Segment index to request
 
 	// Number of errors from preconnect
 	preconnectErrorCount int
@@ -40,9 +44,13 @@ type TrickleSubscriber struct {
 // NewTrickleSubscriber creates a new trickle stream reader for GET requests
 func NewTrickleSubscriber(url string) *TrickleSubscriber {
 	// No preconnect needed here; it will be handled by the first Read call.
+	ctx, cancel := context.WithCancel(context.Background())
 	return &TrickleSubscriber{
-		url: url,
-		idx: -1, // shortcut for 'latest'
+		client:    httpClient(),
+		url:       url,
+		ctx:       ctx,
+		cancelCtx: cancel,
+		idx:       -1, // shortcut for 'latest'
 	}
 }
 
@@ -77,9 +85,15 @@ func IsEOS(resp *http.Response) bool {
 }
 
 func (c *TrickleSubscriber) SetSeq(seq int) {
+	// cancel this outside the lock since we may be deadlocked in preconect otherwise
+	// not super safe on paper but OK in practice, just don't call SetSeq concurrently
+	c.cancelCtx()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.idx = seq
+	c.ctx, c.cancelCtx = context.WithCancel(context.Background())
+	c.pendingGet = nil
+	c.preconnectErrorCount = 0
 }
 
 func (c *TrickleSubscriber) connect(ctx context.Context) (*http.Response, error) {
@@ -93,9 +107,7 @@ func (c *TrickleSubscriber) connect(ctx context.Context) (*http.Response, error)
 	}
 
 	// Execute the GET request
-	resp, err := (&http.Client{Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}}).Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to complete GET for next segment: %w", err)
 	}
@@ -123,7 +135,7 @@ func (c *TrickleSubscriber) preconnect() (*http.Response, error) {
 		go func() {
 			resp, err := c.connect(ctx)
 			if err != nil {
-				if errors.Is(err, context.Canceled) {
+				if errors.Is(err, preconnectTimeoutErr) {
 					// cancelled as part of a preconnect refresh, so ignore
 					return
 				}
@@ -133,7 +145,7 @@ func (c *TrickleSubscriber) preconnect() (*http.Response, error) {
 			respCh <- resp
 		}()
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancelCause(c.ctx)
 	runConnect(ctx)
 	for {
 		select {
@@ -142,8 +154,10 @@ func (c *TrickleSubscriber) preconnect() (*http.Response, error) {
 		case resp := <-respCh:
 			return resp, nil
 		case <-time.After(preconnectRefreshTimeout):
-			cancel()
-			ctx, cancel = context.WithCancel(context.Background())
+			// Use a custom error for the timeout to avoid clashes with parent cancellations
+			// Not doing so could lead to a deadlock due to runConnect returning nothing
+			cancel(preconnectTimeoutErr)
+			ctx, cancel = context.WithCancelCause(c.ctx)
 			runConnect(ctx)
 		}
 	}

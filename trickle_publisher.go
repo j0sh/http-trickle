@@ -14,6 +14,7 @@ var StreamNotFoundErr = errors.New("stream not found")
 
 // TricklePublisher represents a trickle streaming client
 type TricklePublisher struct {
+	client      *http.Client
 	baseURL     string
 	index       int          // Current index for segments
 	writeLock   sync.Mutex   // Mutex to manage concurrent access
@@ -47,6 +48,7 @@ func NewTricklePublisher(url string) (*TricklePublisher, error) {
 	c := &TricklePublisher{
 		baseURL:     url,
 		contentType: "video/MP2T",
+		client:      httpClient(),
 	}
 	p, err := c.preconnect()
 	if err != nil {
@@ -73,27 +75,29 @@ func (c *TricklePublisher) preconnect() (*pendingPost, error) {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", c.contentType)
+	httpclient := c.client
 
 	// Start the POST request in a background goroutine
 	go func() {
-		// Createa new client to prevent connection reuse
-		client := http.Client{Transport: &http.Transport{
-			// ignore orch certs for now
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}}
-		resp, err := client.Do(req)
+		resp, err := httpclient.Do(req)
 		if err != nil {
 			slog.Error("Failed to complete POST for segment", "url", url, "err", err)
 			errCh <- err
 			return
 		}
+		isEOS := resp.Header.Get("Lp-Trickle-Closed") != ""
 		body, err := io.ReadAll(resp.Body)
-		if err != nil {
+		if err != nil && !isEOS {
 			slog.Error("Error reading body", "url", url, "err", err)
 			errCh <- err
 			return
 		}
 		defer resp.Body.Close()
+
+		if isEOS {
+			errCh <- EOS
+			return
+		}
 
 		if resp.StatusCode != http.StatusOK {
 			slog.Error("Failed POST segment", "url", url, "status_code", resp.StatusCode, "msg", string(body))
@@ -125,10 +129,8 @@ func (c *TricklePublisher) Close() error {
 	if err != nil {
 		return err
 	}
-	resp, err := (&http.Client{Transport: &http.Transport{
-		// ignore orch certs for now
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}}).Do(req)
+	// Use a new client for a fresh connection
+	resp, err := httpClient().Do(req)
 	if err != nil {
 		return err
 	}
@@ -145,10 +147,7 @@ func (c *TricklePublisher) Create() error {
 	if err != nil {
 		return err
 	}
-	resp, err := (&http.Client{Transport: &http.Transport{
-		// ignore orch certs for now
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}}).Do(req)
+	resp, err := httpClient().Do(req)
 	if err != nil {
 		return err
 	}
@@ -171,7 +170,6 @@ func (c *TricklePublisher) Next() (*pendingPost, error) {
 	if pp == nil {
 		p, err := c.preconnect()
 		if err != nil {
-			c.writeLock.Unlock()
 			return nil, err
 		}
 		pp = p
@@ -180,7 +178,6 @@ func (c *TricklePublisher) Next() (*pendingPost, error) {
 	// Set up the next connection
 	nextPost, err := c.preconnect()
 	if err != nil {
-		c.writeLock.Unlock()
 		return nil, err
 	}
 	c.pendingPost = nextPost
@@ -193,11 +190,12 @@ func (p *pendingPost) reconnect() (*pendingPost, error) {
 	// Set the publisher's sequence sequence to the intended reconnect
 	// Call publisher's preconnect (which increments its sequence)
 	// then reset publisher's sequence back to the original
-	//slog.Info("Re-connecting", "url", p.client.baseURL, "seq", p.client.index)
+	// Also recreate the client to force a fresh connection
 	p.client.writeLock.Lock()
 	defer p.client.writeLock.Unlock()
 	currentSeq := p.client.index
 	p.client.index = p.index
+	p.client.client = httpClient()
 	pp, err := p.client.preconnect()
 	p.client.index = currentSeq
 	return pp, err
@@ -280,10 +278,10 @@ func (p *pendingPost) Close() error {
 	if err != nil {
 		return err
 	}
-	resp, err := (&http.Client{Transport: &http.Transport{
-		// ignore orch certs for now
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}}).Do(req)
+	// Since this method typically gets invoked when
+	// there is a problem sending the segment, use a
+	// new client for a fresh connection just in case
+	resp, err := httpClient().Do(req)
 	if err != nil {
 		return err
 	}
@@ -303,6 +301,15 @@ func (c *TricklePublisher) Write(data io.Reader) error {
 	}
 	_, err = pp.Write(data)
 	return err
+}
+
+func httpClient() *http.Client {
+	return &http.Client{Transport: &http.Transport{
+		// Re-enable keepalives to avoid connection pooling
+		// DisableKeepAlives: true,
+		// ignore orch certs for now
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}}
 }
 
 func humanBytes(bytes int64) string {

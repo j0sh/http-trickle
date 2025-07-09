@@ -4,7 +4,7 @@ import aiohttp
 import logging
 import os
 
-from trickle_writer import TrickleWriter
+from trickle import TricklePublisher
 
 async def main():
 
@@ -20,8 +20,8 @@ async def main():
         logging.error(f"The file '{args.local}' does not exist.")
         return
 
-    # Initialize the TrickleWriter
-    writer = TrickleWriter(args.url, args.stream)
+    # Initialize the TricklePublisher
+    writer = TricklePublisher(args.url + "/" +  args.stream, 'text/plain')
 
     kount = 0
 

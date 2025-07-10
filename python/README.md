@@ -52,3 +52,21 @@ The file path is hardcoded to `read-%d.ts` at the moment.
 python segment-writer.py --stream=<subscribe-url>
 ```
 
+### stress testing
+Python publisher, golang subscriber.
+Includes a log analysis tool to make sure both clients agree.
+
+Python:
+```
+cd python && ./python3 stress-publisher.py --stream=<stream-name> --count=25 --segments=200 2>&1 | tee ../out-publisher.log
+```
+
+Golang:
+```
+go run cmd/stress-subscriber/stress_subscriber.go --stream=<stream-name> --count 25 2>&1 | tee out-subscriber.log
+```
+
+Logs:
+```
+go run cmd/stress-subscriber/compare_logs.go out-publisher.log out-subscriber.log
+```

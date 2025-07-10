@@ -44,7 +44,7 @@ func (c *TrickleLocalSubscriber) Read() (*TrickleData, error) {
 		if closed {
 			return nil, EOS
 		}
-		return nil, errors.New("seq not found")
+		return nil, &SequenceNonexistent{Latest: latestSeq, Seq: c.seq}
 	}
 	c.seq++
 	r, w := io.Pipe()
@@ -78,4 +78,10 @@ func (c *TrickleLocalSubscriber) Read() (*TrickleData, error) {
 			"Content-Type":      stream.mimeType,
 		}, // TODO take more metadata from http headers
 	}, nil
+}
+
+func (c *TrickleLocalSubscriber) SetSeq(seq int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.seq = seq
 }

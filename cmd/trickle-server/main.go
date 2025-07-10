@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"io"
 	"log"
@@ -46,6 +47,12 @@ func changefeedSubscribe(srv *trickle.Server) {
 			}
 			b, err := io.ReadAll(part.Reader)
 			if err != nil {
+				var sne *trickle.SequenceNonexistent
+				if errors.As(err, &sne) {
+					log.Println("Changefeed seq doesn't exist, resetting", err)
+					sub.SetSeq(sne.Latest)
+					continue
+				}
 				log.Fatal("Changefeed read error", err)
 			}
 			log.Println("Changefeed", string(b))
